@@ -1,0 +1,322 @@
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { DeploymentProof } from './deployment-policy.ts';
+import {
+  assertEvidence,
+  deploymentRecord,
+  deploymentUrl,
+  integer,
+  object,
+  parseProof,
+  releaseTag,
+  text,
+} from './deployment-policy.ts';
+import { git } from './git.ts';
+import { assertLockVersion, latestVersion } from './policy.ts';
+
+export function required(name: string): string {
+  return text(process.env[name]);
+}
+
+function repositoryUrl(): string {
+  const repository = required('GITHUB_REPOSITORY');
+
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9-]*\/[a-zA-Z0-9_.-]+$/.test(repository)) {
+    throw new Error('Invalid GitHub repository.');
+  }
+
+  return `https://api.github.com/repos/${repository}`;
+}
+
+export async function api(path: string, method = 'GET', body?: unknown): Promise<unknown> {
+  const result = await fetch(`${repositoryUrl()}${path}`, {
+    body: body === undefined ? undefined : JSON.stringify(body),
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${required('GITHUB_TOKEN')}`,
+      'Content-Type': 'application/json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    method,
+    signal: AbortSignal.timeout(30000),
+  });
+
+  if (result.status === 404 && method === 'GET') {
+    return null;
+  }
+
+  if (!result.ok) {
+    throw new Error(`GitHub ${method} ${path} failed (${result.status}): ${await result.text()}`);
+  }
+
+  return (await result.json()) as unknown;
+}
+
+export async function previousStable(): Promise<string | undefined> {
+  const latest = await api('/releases/latest');
+
+  if (latest === null) {
+    return undefined;
+  }
+
+  const release = object(latest);
+
+  if (release.draft !== false || release.prerelease !== false) {
+    throw new Error('Previous production release must be stable and public.');
+  }
+
+  return releaseTag(release.tag_name);
+}
+
+export async function successfulValidation(sha: string, wait = false): Promise<void> {
+  for (let attempt = 0; attempt < (wait ? 120 : 1); attempt += 1) {
+    const response = object(
+      await api(
+        `/actions/workflows/execute-pr-validation.yml/runs?event=push&head_sha=${sha}&per_page=10`,
+      ),
+    );
+
+    if (!Array.isArray(response.workflow_runs)) {
+      throw new Error('GitHub did not return main validation workflow runs.');
+    }
+
+    const latest = response.workflow_runs[0] as unknown;
+    const run = latest === undefined ? null : object(latest);
+
+    if (run && (run.head_sha !== sha || run.head_branch !== 'main' || run.event !== 'push')) {
+      throw new Error('Main validation run does not match the tested commit.');
+    }
+
+    if (run?.status === 'completed') {
+      if (run.conclusion !== 'success') {
+        throw new Error(
+          'Latest main Validate workflow failed; no prerelease or promotion allowed.',
+        );
+      }
+
+      return;
+    }
+
+    if (!wait || attempt === 119) {
+      throw new Error('Main Validate workflow must complete successfully before release.');
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+  }
+}
+
+export async function validate(): Promise<{
+  proof: DeploymentProof;
+  release: Record<string, unknown>;
+  tag: string;
+}> {
+  if (
+    process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch' ||
+    process.env.GITHUB_REF !== 'refs/heads/main' ||
+    process.env.TEST_APPROVED !== 'true'
+  ) {
+    throw new Error('PROD requires dispatch from main and explicit acceptance of the tested tag.');
+  }
+
+  const tag = releaseTag(required('RELEASE_TAG'));
+
+  git('fetch', 'origin', 'main', '--tags');
+
+  if (git('cat-file', '-t', `refs/tags/${tag}`) !== 'tag') {
+    throw new Error('Only annotated release tags can deploy.');
+  }
+
+  const sha = git('rev-parse', `${tag}^{commit}`);
+
+  git('merge-base', '--is-ancestor', sha, 'origin/main');
+
+  const release = object(await api(`/releases/tags/${tag}`));
+  const proof = parseProof(release.body);
+  const run = await api(`/actions/runs/${proof.run}`);
+  const artifact = await api(`/actions/artifacts/${proof.artifact}`);
+
+  assertEvidence(tag, sha, release, run, artifact);
+
+  await successfulValidation(sha);
+
+  const pkg = object(JSON.parse(git('show', `${sha}:package.json`)) as unknown);
+
+  if (`v${text(pkg.version)}` !== tag) {
+    throw new Error('Tag does not match the tested package version.');
+  }
+
+  assertLockVersion(
+    text(pkg.version),
+    JSON.parse(git('show', `${sha}:package-lock.json`)) as unknown,
+  );
+
+  const previous = await previousStable();
+
+  if (previous && (previous === tag || latestVersion([previous, tag]) !== tag.slice(1))) {
+    throw new Error(
+      'Production promotion must move forward, never redeploy or downgrade a release.',
+    );
+  }
+
+  return { proof, release, tag };
+}
+
+export async function download(): Promise<void> {
+  const { proof } = await validate();
+
+  if (
+    proof.sha !== required('EXPECTED_SHA') ||
+    String(proof.artifact) !== required('EXPECTED_ARTIFACT') ||
+    proof.digest !== required('EXPECTED_DIGEST') ||
+    git('rev-parse', 'HEAD') !== proof.sha
+  ) {
+    throw new Error('Release changed during approval; select and validate it again.');
+  }
+
+  if (existsSync('dist')) {
+    throw new Error('Production must start without dist and use only the tested artifact.');
+  }
+
+  const response = await fetch(`${repositoryUrl()}/actions/artifacts/${proof.artifact}/zip`, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${required('GITHUB_TOKEN')}`,
+    },
+    signal: AbortSignal.timeout(120000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`TEST artifact download failed (${response.status}).`);
+  }
+
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+
+  if (digest !== proof.digest) {
+    throw new Error('Downloaded TEST artifact checksum does not match release provenance.');
+  }
+
+  const archive = join(required('RUNNER_TEMP'), 'tested-site.zip');
+
+  writeFileSync(archive, bytes);
+
+  execFileSync('unzip', ['-q', archive, '-d', 'dist'], { stdio: 'inherit' });
+
+  const marker = object(JSON.parse(readFileSync('dist/release.json', 'utf8')) as unknown);
+
+  if (marker.sha !== proof.sha || marker.tag !== required('RELEASE_TAG')) {
+    throw new Error('Downloaded site does not identify the tested commit and tag.');
+  }
+}
+
+export async function smoke(environment: string): Promise<void> {
+  const record = deploymentRecord(readFileSync(required('DEPLOYMENT_OUTPUT'), 'utf8'), environment);
+  const url = deploymentUrl(required('DEPLOYMENT_URL'));
+
+  if (url !== record.url) {
+    throw new Error('Configured environment URL does not match the deployed Worker.');
+  }
+
+  const marker = readFileSync('dist/release.json', 'utf8');
+  const paths = [
+    '/release.json',
+    '/',
+    '/vision/face_landmarker.task',
+    '/vision/wasm/vision_wasm_internal.wasm',
+    '/vision/wasm/vision_wasm_nosimd_internal.wasm',
+  ];
+
+  // A new deployment can take a short time to reach the public workers.dev endpoint.
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const response = await fetch(`${url}/release.json`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (response.ok && (await response.text()) === marker) {
+      break;
+    }
+
+    if (attempt === 11) {
+      throw new Error('Public Worker did not serve the tested release marker within one minute.');
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+  }
+
+  for (const path of paths) {
+    const response = await fetch(`${url}${path}`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(30000),
+    });
+    const type = response.headers.get('content-type') ?? '';
+    const bytes = Buffer.from(await response.arrayBuffer());
+
+    if (
+      !response.ok ||
+      (path.endsWith('.wasm') && !type.startsWith('application/wasm')) ||
+      (path.endsWith('.task') && type.includes('text/html')) ||
+      !bytes.equals(readFileSync(`dist${path === '/' ? '/index.html' : path}`))
+    ) {
+      throw new Error(`Public deployment asset mismatch: ${path} (${response.status}, ${type}).`);
+    }
+
+    if (
+      path === '/' &&
+      (!response.headers.get('content-security-policy')?.includes("frame-ancestors 'none'") ||
+        response.headers.get('permissions-policy') !==
+          'camera=(self), microphone=(), geolocation=()')
+    ) {
+      throw new Error('Public deployment security headers are missing or incorrect.');
+    }
+  }
+
+  const summary = process.env.GITHUB_STEP_SUMMARY;
+
+  if (summary) {
+    appendFileSync(summary, `\nVerified ${environment}: ${url}\n`);
+  }
+}
+
+export async function promote(): Promise<void> {
+  const { proof, release, tag } = await validate();
+
+  if (git('rev-parse', 'HEAD') !== proof.sha) {
+    throw new Error('Production checkout differs from the tested tag.');
+  }
+
+  await api(`/releases/${integer(release.id)}`, 'PATCH', {
+    make_latest: 'true',
+    prerelease: false,
+  });
+
+  console.log(`Promoted ${tag} to a stable GitHub release; the annotated tag is unchanged.`);
+}
+
+async function run(): Promise<void> {
+  const command = process.argv[2];
+
+  if (command === 'validate') {
+    const { proof } = await validate();
+
+    appendFileSync(
+      required('GITHUB_OUTPUT'),
+      `artifact=${proof.artifact}\ndigest=${proof.digest}\nsha=${proof.sha}\n`,
+    );
+  } else if (command === 'download') {
+    await download();
+  } else if (command === 'smoke') {
+    await smoke(text(process.argv[3]));
+  } else if (command === 'promote') {
+    await promote();
+  } else {
+    throw new Error('Unknown deployment command.');
+  }
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  await run();
+}

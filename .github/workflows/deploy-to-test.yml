@@ -1,0 +1,58 @@
+name: Deploy to TEST
+
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: deploy-test
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  test:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    environment: test
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      DEPLOYMENT_URL: ${{ vars.DEPLOYMENT_URL }}
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run verify
+      - run: node scripts/release.ts prepare
+      - run: npx wrangler deploy --env test
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/test-deploy.jsonl
+      - run: node scripts/deployment.ts smoke test
+        env:
+          DEPLOYMENT_OUTPUT: ${{ runner.temp }}/test-deploy.jsonl
+      - uses: actions/upload-artifact@v4
+        id: artifact
+        with:
+          name: tested-site-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
+      - run: node scripts/release.ts publish
+        env:
+          ARTIFACT_ID: ${{ steps.artifact.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.artifact.outputs.artifact-digest }}
+          DEPLOYMENT_OUTPUT: ${{ runner.temp }}/test-deploy.jsonl

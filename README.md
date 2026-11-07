@@ -1,4 +1,4 @@
-# O meu olhar
+# Button Eye Reader
 
 ## Developers and AI
 
@@ -8,152 +8,148 @@ Start with [contributor rules](docs/CONTRIBUTING.md),
 [PRs, versioning and releases](docs/RELEASES.md). Every commit requires meaningful documentation.
 Use feature branches, strict checks and reviewed squash PRs to main.
 
+Repository code, comments, documentation and tooling messages must be in **English**. Only
+user-facing site content is **pt-PT**. Describe controls in English in documentation; localized test
+fixtures must still match the actual site.
+
 The current version is in `package.json` and the app footer; released versions use immutable
 `vX.Y.Z` tags. See [CHANGELOG.md](CHANGELOG.md).
 
-Prancha de comunicação **pt-PT**, pensada primeiro para Safari no **iPad A16**. Quatro botões
-grandes dizem palavras/frases. Funciona por toque e inclui um **protótipo experimental de seleção
-pelo olhar**, com a câmara frontal.
+A **pt-PT** communication board designed primarily for Safari on the **iPad A16**. Four large
+buttons speak words or phrases. Touch is supported alongside an **experimental gaze-selection
+prototype** using the front camera.
 
-## O que está incluído
+## Included features
 
-- Quatro frases configuráveis, inicialmente «Sim», «Não», «Quero água» e «Preciso de ajuda».
-- «Escolher outra frase»: catálogo paginado com quatro frases de cada vez. Escolha uma frase e
-  depois um dos quatro botões a substituir. Todo este percurso funciona por toque ou olhar, sem
-  teclado.
-- «Adicionar frase»: área de escrita para quem acompanha; guarda até 100 caracteres por frase. O
-  olhar é desligado antes de abrir o teclado.
-- 28 frases pt-PT iniciais. Frases novas e botões são guardados em `localStorage`. Não existe conta,
-  base de dados, sincronização entre dispositivos ou recolha de imagens.
-- Voz do sistema, preferindo uma voz **pt-PT**. Não utiliza serviços de voz externos.
-- Calibração automática de nove pontos e verificação de quatro pontos. Seleção após **2 segundos**
-  contínuos. A barra dourada mostra o progresso. É necessário olhar para fora do botão durante 400
-  ms antes da próxima seleção.
-- Câmara desligada ao sair da página, mudar o tamanho/orientação, deslocar a página ou abrir a
-  escrita. É necessário recalibrar.
+- Four configurable phrases, initially meaning yes, no, wanting water and needing help.
+- Phrase selection: a catalogue with four phrases per page. Choose a phrase, then the speaking
+  button to replace. The entire flow supports touch or gaze without typing.
+- Add phrase: caregiver-only text entry, storing up to 100 characters per phrase. Gaze is disabled
+  before opening the keyboard.
+- 28 initial pt-PT phrases. New phrases and button assignments are stored in `localStorage`. There
+  is no account, database, cross-device synchronization or image collection.
+- System speech, preferring a **pt-PT** voice. No external speech service is used.
+- Automatic nine-point calibration and four-point validation. Selection requires **2 seconds** of
+  continuous gaze. The gold bar shows progress. Another selection requires 400 ms of valid gaze
+  outside the selected button.
+- Camera shutdown on leaving the page, resizing/reorienting, scrolling or opening text entry.
+  Recalibration is required afterwards.
 
-## Limites importantes
+## Important limitations
 
-**Não é um dispositivo médico nem um sistema fiável de comunicação de emergência.** Uma câmara
-normal de iPad não equivale a um aparelho dedicado de eye tracking. MediaPipe identifica rosto e
-íris; uma regressão calibrada estima a posição no ecrã a partir desses sinais. Não há uma garantia
-de precisão, e a aplicação pode não funcionar com certas posições, movimentos oculares ou condições
-de iluminação. Não exige mover a cabeça para calibrar, mas o desempenho com movimentos apenas dos
-olhos tem de ser confirmado no dispositivo e com a pessoa que o irá utilizar.
+**This is not a medical device or a reliable emergency communication system.** An ordinary iPad
+camera is not equivalent to dedicated eye-tracking hardware. MediaPipe detects the face and irises;
+a calibrated regression estimates screen position from those signals. Accuracy is not guaranteed,
+and some positions, eye movements or lighting conditions may prevent the app from working.
+Calibration does not require head movement, but eye-only performance must be confirmed on the
+intended device and with its intended user.
 
-O olhar só fica ativo se **cada** ponto de verificação tiver pelo menos 12 amostras e 90% delas
-apresentarem erro de, no máximo, 12% da largura e 12% da altura do ecrã. É apenas uma verificação
-inicial: não prova a precisão contínua. Ausência de rosto, mais de um rosto, olhos fechados, imagem
-parada ou dados fora do intervalo calibrado interrompem a seleção. Uma deteção errada ainda pode
-escolher uma frase incorreta. Se existirem erros, desligue o olhar e use outro meio de comunicação
-com acompanhamento.
+Gaze is enabled only if **every** validation point has at least 12 samples and 90% of them have
+errors no greater than 12% of screen width and 12% of screen height. This initial check does not
+prove ongoing accuracy. No face, multiple faces, closed eyes, frozen frames or data outside the
+calibrated range interrupt selection. Incorrect detections can still select the wrong phrase. If
+errors occur, disable gaze and use another supervised communication method.
 
-Safari pode bloquear fala iniciada sem um toque recente. «Testar som» e «Ativar olhar» iniciam voz
-por toque, mas isso **não garante** autorização permanente. Falhas de voz e ausência de uma voz
-pt-PT confirmada aparecem no ecrã. Verifique uma voz portuguesa nas definições de
-acessibilidade/conteúdo falado do iPad, o volume e a saída de áudio. Ouça o sotaque real antes de
-utilizar.
+Safari may block speech without a recent touch gesture. The sound-test and enable-gaze controls
+initiate speech through touch, but **do not guarantee** permanent authorization. Speech failures and
+the absence of a confirmed pt-PT voice are shown on screen. Check Portuguese voice availability in
+the iPad accessibility/spoken-content settings, volume and audio output. Listen to the actual accent
+before use.
 
-As frases persistem só neste navegador e origem. Mudar de domínio, limpar os dados, usar navegação
-privada ou perder o dispositivo pode eliminá-las. Não escreva informação confidencial: nesta
-primeira versão não existe encriptação nem exportação. Dados inválidos existentes não são
-silenciosamente substituídos.
+Phrases persist only in this browser and origin. Changing domains, clearing browser data, private
+browsing or losing the device may remove them. Do not enter confidential information: this initial
+version has no encryption or export. Existing invalid data is not silently overwritten.
 
-## Desenvolvimento
+## Development
 
-Requer Node.js **22.22.2 ou superior** e npm. Node só é necessário para construir e publicar; o site
-final é estático (TypeScript + Vite, sem framework de interface).
+Requires Node.js **22.22.2 or later** and npm. Node is used only for building and deployment; the
+published site is static TypeScript and Vite, with no UI framework.
 
 ```sh
 npm ci
 npm run dev
 ```
 
-Abra o endereço local apresentado pelo Vite. `localhost` permite câmara no computador. Para testar a
-câmara **no iPad**, use o endereço **HTTPS** de Cloudflare; um IP local com HTTP não tem permissão
-de câmara.
+Open the local address printed by Vite. `localhost` allows camera access on the computer. For camera
+testing **on the iPad**, use a Cloudflare **HTTPS** address; a local HTTP IP address does not grant
+camera permission.
 
 ```sh
 npm test
 npm run build
 ```
 
-A instalação copia o WASM de MediaPipe e descarrega o modelo Face Landmarker float16 v1 (~3,8 MB) do
-armazenamento oficial Google, verificando o SHA-256. É preciso internet durante a primeira
-instalação. Os ficheiros gerados ficam em `public/vision/`, são ignorados pelo Git e entram em
-`dist/` durante a construção. No navegador, o modelo e WASM são servidos **do próprio site**, não de
-um CDN. Nenhum vídeo é enviado para um servidor. A deteção é limitada a cerca de 12 imagens/s na
-thread principal; teste fluidez, temperatura e bateria no iPad.
+Installation copies MediaPipe WASM and downloads the Face Landmarker float16 v1 model (~3.8 MB) from
+official Google storage, verifying its SHA-256. The initial installation needs internet. Generated
+files are stored in `public/vision/`, ignored by Git and included in `dist/` during the build. The
+browser loads model/WASM **from the site itself**, not a CDN. No video is uploaded. Detection is
+limited to approximately 12 frames per second on the main thread; test responsiveness, temperature
+and battery usage on the iPad.
 
-## Publicar com Cloudflare e GitHub
+## Deployment with Cloudflare and GitHub
 
-Use **Cloudflare Workers Static Assets + Workers Builds**, a pipeline nativa de Cloudflare.
-«Cloudflare Pipelines» é um produto de ingestão de dados e não é necessário para publicar este site.
+Use **Cloudflare Workers Static Assets**, deployed by **GitHub Actions** to two Workers. Cloudflare
+Pipelines is a data-ingestion product and is not used. **Do not connect Workers Builds**: automatic
+production deployment would bypass manual approval.
 
-1. Crie o repositório GitHub e envie este projeto, incluindo `package-lock.json`. Não envie
-   `node_modules`, `dist`, modelos gerados nem credenciais.
-2. Em Cloudflare: **Workers & Pages → Create application → GitHub**. Autorize o repositório e
-   selecione-o.
-3. Nome do Worker: **`button-eye-reader`**, igual ao campo `name` de `wrangler.jsonc`.
-4. Diretório raiz: raiz do repositório. Branch de produção: **`main`**.
-5. Comando de construção: **`npm ci && npm run verify`**.
-6. Comando de publicação: **`npx wrangler deploy`**. Use Node 22.22.2+ no ambiente de construção
-   (por exemplo, variável `NODE_VERSION=22.22.2`).
-7. Publique e abra o endereço HTTPS `*.workers.dev` no iPad. Pode adicionar um domínio próprio
-   depois. Escolha a origem definitiva antes de guardar frases.
+Follow the [setup, recovery and verification guide](docs/DEPLOYMENT.md), also reusable for other
+static apps. **Before enabling workflows, confirm that `main` exists on GitHub and is the default
+branch.** Reload dashboards after saving configuration and verify both Workers and GitHub
+environments; external settings do not change just because YAML changes.
 
-Cada push para `main` desencadeia a construção/publicação em Cloudflare. GitHub Actions executa
-testes e construção em pull requests e em `main`; não requer segredos Cloudflare. Os testes também
-fazem parte da construção Cloudflare para impedir a publicação se falharem. Configure as
-verificações GitHub como obrigatórias na proteção da branch se pretender exigir revisão antes da
-publicação. Para a primeira versão, desative builds de branches não produtivas no painel; ou
-configure o comando de pré-visualização conforme a documentação de Workers Builds.
+Each squash merge into `main` validates and deploys **TEST only**. Only after success does it create
+a `vX.Y.Z` tag and GitHub prerelease with generated notes. After testing, dispatch **Deploy to
+PROD** with that tag: it validates provenance and deploys the same artifact without rebuilding, then
+makes the same release stable. See the guide for tokens, URLs and `production` approval setup.
 
-Alternativa manual autenticada:
+Create both TEST and PROD Workers from scratch using the guide and copy their actual URLs. The
+starter content is replaced only by the respective workflow. Choose the final origin before storing
+phrases; changing domains does not transfer `localStorage`.
+
+Authenticated local alternative for **TEST only**, without creating an eligible prerelease:
 
 ```sh
 npx wrangler login
 npm run deploy
 ```
 
-As configurações e pipelines estão preparadas; é necessário ligar as suas contas no painel. Não
-existe autenticação Cloudflare ou GitHub incluída no projeto.
+For another account or app, configure Workers and GitHub Environments using the guide. No Cloudflare
+or GitHub credentials are included in the project.
 
-## Primeiro teste no iPad (com acompanhamento)
+## First supervised iPad test
 
-1. Use Safari atualizado, modo normal, zoom de página 100%, sem Split View. Prefira a orientação
-   horizontal; a vertical também tem uma grelha 2 × 2.
-2. Monte o iPad num suporte fixo, ao nível dos olhos, com luz uniforme. Só a pessoa utilizadora deve
-   aparecer na câmara. Não altere a distância depois de calibrar.
-3. Toque em «Testar som». Confirme voz pt-PT, volume e saída de áudio.
-4. Teste por toque as quatro frases, uma substituição no catálogo, uma frase nova e a persistência
-   depois de recarregar.
-5. Toque em «Ativar olhar», autorize a câmara e peça à pessoa que siga o centro do círculo com os
-   olhos, sem precisar de tocar. Demora cerca de 40 segundos se estável.
-6. Depois da verificação, olhe para fora do último círculo. Teste **cada** botão várias vezes.
-   Confirme que não fala antes de dois segundos, que não repete sem desviar o olhar, e que olhar
-   para espaços vazios não ativa nada.
-7. Teste «Escolher outra frase», «Seguinte/Anterior», seleção e substituição apenas pelo olhar.
-   Confirme também pausas ao fechar os olhos ou entrar outro rosto.
-8. Mude a orientação/saia e regresse: a câmara deve desligar e exigir recalibração. Faça uma sessão
-   acompanhada mais longa para detetar deriva e falhas de áudio.
+1. Use updated Safari, normal browsing, 100% page zoom and no Split View. Prefer landscape; portrait
+   also uses a 2-by-2 grid.
+2. Mount the iPad securely at eye level with uniform lighting. Only the intended user should appear
+   in the camera. Do not change the distance after calibration.
+3. Tap the sound-test control. Confirm pt-PT voice, volume and audio output.
+4. Test all four speaking buttons by touch, a catalogue replacement, a new phrase and persistence
+   after reloading.
+5. Tap the enable-gaze control, grant camera permission and ask the user to follow the centre of the
+   circle with their eyes, without touching. Stable calibration takes approximately 40 seconds.
+6. After validation, look outside the last circle. Test **every** button several times. Confirm
+   there is no speech before two seconds, no repeat without looking away and no selection in gaps.
+7. Test the catalogue, next/previous navigation, phrase selection and replacement using gaze alone.
+   Confirm pauses with closed eyes or another face entering the camera.
+8. Change orientation or leave and return: the camera must stop and require recalibration. Run a
+   longer supervised session to detect drift and audio failures.
 
-Os testes automatizados cobrem dados, regressão, limites de verificação, dwell, ciclo de vida da
-câmara e erros de voz. Não validam precisão ocular, sotaque, permissões ou desempenho no iPad
-físico: esses pontos são critérios de aceitação antes de depender do protótipo.
+Automated tests cover data, regression, validation thresholds, dwell, camera lifecycle and speech
+errors. They do not establish eye accuracy, accent, permissions or performance on a physical iPad:
+those are acceptance criteria before relying on the prototype.
 
-## Estrutura / extensões
+## Structure and extensions
 
-- `src/main.ts`: interface e percurso de catálogo/substituição.
-- `src/store.ts`: frases iniciais, validação e alterações imutáveis dos quatro botões.
-- `src/dwell.ts`: seleção temporizada, margem de segurança e bloqueio de repetição.
-- `src/gaze.ts` / `src/gaze-math.ts`: câmara, landmarks e calibração.
-- `src/speech.ts`: voz pt-PT, prevenção de filas e erros de áudio.
-- `src/style.css`: tipografia, espaçamento e grelha iPad.
+- `src/main.ts`: UI and catalogue/replacement flow.
+- `src/store.ts`: initial phrases, validation and immutable speaking-button updates.
+- `src/dwell.ts`: timed selection, safety margins and repeat prevention.
+- `src/gaze.ts` / `src/gaze-math.ts`: camera, landmarks and calibration.
+- `src/speech.ts`: pt-PT speech, queue prevention and audio errors.
+- `src/style.css`: typography, spacing and iPad layout.
 
-Para manter poucos alvos no ecrã, futuras opções devem usar páginas de quatro elementos em vez de
-aumentar o número de botões da prancha principal.
+Keep few targets on screen: future options should use pages of four items rather than adding buttons
+to the main board.
 
-Referências: [Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/),
+References: [GitHub Actions](https://docs.github.com/en/actions),
 [Static Assets](https://developers.cloudflare.com/workers/static-assets/),
 [MediaPipe Face Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker).

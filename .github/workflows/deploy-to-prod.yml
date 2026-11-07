@@ -1,0 +1,83 @@
+name: Deploy to PROD
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing TEST prerelease tag (vX.Y.Z), never a branch or SHA'
+        required: true
+        type: string
+      test_approved:
+        description: 'I tested this exact tag/SHA in TEST and approve production'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact: ${{ steps.validate.outputs.artifact }}
+      digest: ${{ steps.validate.outputs.digest }}
+      sha: ${{ steps.validate.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - id: validate
+        run: node scripts/deployment.ts validate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          TEST_APPROVED: ${{ inputs.test_approved }}
+
+  production:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      TEST_APPROVED: ${{ inputs.test_approved }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      DEPLOYMENT_URL: ${{ vars.DEPLOYMENT_URL }}
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.validate.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node scripts/deployment.ts download
+        env:
+          EXPECTED_ARTIFACT: ${{ needs.validate.outputs.artifact }}
+          EXPECTED_DIGEST: ${{ needs.validate.outputs.digest }}
+          EXPECTED_SHA: ${{ needs.validate.outputs.sha }}
+      - run: npx wrangler deploy --env production
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/production-deploy.jsonl
+      - run: node scripts/deployment.ts smoke production
+        env:
+          DEPLOYMENT_OUTPUT: ${{ runner.temp }}/production-deploy.jsonl
+      - run: node scripts/deployment.ts promote

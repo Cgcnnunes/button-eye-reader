@@ -12,32 +12,34 @@ npm run dev
 `npm ci` installs dependencies, local model/WASM assets and Husky. The initial model download needs
 internet; a checksum mismatch fails explicitly.
 
-| Command                                   | Purpose                                                  |
-| ----------------------------------------- | -------------------------------------------------------- |
-| `npm run dev`                             | Local Vite site; open the shown localhost URL            |
-| `npm run assets`                          | Restore self-hosted model/WASM; no video upload          |
-| `npm run check`                           | Strict TypeScript validation of browser, tests and tools |
-| `npm run lint` / `npm run lint:fix`       | Type-aware ESLint, zero warnings / fixes                 |
-| `npm run format` / `npm run format:check` | Prettier write / read-only check                         |
-| `npm test`                                | Full Vitest regression suite and enforced coverage       |
-| `npm run test:watch`                      | Interactive tests while developing                       |
-| `npm run verify`                          | Format check → lint → tests/coverage → type-check/build  |
-| `npm run build`                           | Type-check and compile static assets into `dist`         |
-| `npm run preview`                         | Serve the compiled site locally                          |
-| `npx wrangler dev --local`                | Local Cloudflare runtime, including production headers   |
-| `npx wrangler deploy --dry-run`           | Validate the deployment package without publishing       |
-| `npm run deploy`                          | Authenticated manual Cloudflare deployment               |
-| `npm run branch:new`                      | Fetch and create the next five-digit feature branch      |
-| `npm run commit:next`                     | Print the next valid commit scope                        |
-| `npm run release:prepare -- patch`        | Prepare app/lockfile version for the PR bump             |
-| `npm run docs:check`                      | Verify staged docs and feature branch                    |
-| `npm run repo:check`                      | CI-only PR policy check; requires a GitHub event file    |
+| Command                                    | Purpose                                                  |
+| ------------------------------------------ | -------------------------------------------------------- |
+| `npm run dev`                              | Local Vite site; open the shown localhost URL            |
+| `npm run assets`                           | Restore self-hosted model/WASM; no video upload          |
+| `npm run check`                            | Strict TypeScript validation of browser, tests and tools |
+| `npm run lint` / `npm run lint:fix`        | Type-aware ESLint, zero warnings / fixes                 |
+| `npm run format` / `npm run format:check`  | Prettier write / read-only check                         |
+| `npm test`                                 | Full Vitest regression suite and enforced coverage       |
+| `npm run test:watch`                       | Interactive tests while developing                       |
+| `npm run verify`                           | Format check → lint → tests/coverage → type-check/build  |
+| `npm run build`                            | Type-check and compile static assets into `dist`         |
+| `npm run preview`                          | Serve the compiled site locally                          |
+| `npx wrangler dev --local`                 | Local Cloudflare runtime, including production headers   |
+| `npx wrangler deploy --env test --dry-run` | Validate the TEST package without publishing             |
+| `npm run deploy`                           | Manual TEST only; does not create release provenance     |
+| `npm run branch:new`                       | Fetch and create the next five-digit feature branch      |
+| `npm run commit:next`                      | Print the next valid commit scope                        |
+| `npm run release:prepare -- patch`         | Prepare app/lockfile version for the PR bump             |
+| `npm run docs:check`                       | Verify staged docs and feature branch                    |
+| `npm run repo:check`                       | CI-only PR policy check; requires a GitHub event file    |
 
 Tests cover storage validation/persistence, phrase replacement, camera cancellation and errors,
 voice errors, regression mapping, per-point calibration acceptance, exact dwell timing/repeat locks,
 the UI flow and commit/PR/version policies. Coverage includes all browser TypeScript and shared
-policy logic. Every included file requires 90% lines/statements/functions and 80% branches. Do not
-lower thresholds to hide missing tests. HTML coverage is in `coverage/index.html` (ignored by Git).
+policy logic, including deployment provenance guards. Tests reject failed/unrelated workflows,
+stable or malformed tags, expired/tampered artifacts, checksum mismatches and wrong Worker output.
+Every included file requires 90% lines/statements/functions and 80% branches. Do not lower
+thresholds to hide missing tests. HTML coverage is in `coverage/index.html` (ignored by Git).
 
 ## Local gaze testing without a camera
 
@@ -60,8 +62,10 @@ audio.
 
 Use the Cloudflare **HTTPS** site in updated Safari, page zoom 100%, normal browsing, without Split
 View. Prefer landscape. A local Windows PC address over HTTP does not grant camera access on the
-iPad; use a deployed HTTPS preview instead. A locally trusted HTTPS certificate can also work, but
-requires configuring trust on the iPad and is not part of this minimal setup.
+iPad; use the separate HTTPS TEST Worker instead. Record its `release.json` tag/SHA and manual
+results before the next merge overwrites TEST. Its phrase storage is separate from PROD. A locally
+trusted HTTPS certificate can also work, but requires configuring trust on the iPad and is not part
+of this minimal setup.
 
 The assistant cannot automatically inspect your iPad or camera. Shared desktop browser tools do not
 connect to remote iPad Safari. Apple's Safari Web Inspector normally needs a **Mac**, cable/trusted
@@ -71,9 +75,9 @@ person's image, private phrases or other identifying information.
 
 ## Manual option 2: PC webcam and shared browser
 
-Connect a webcam, run `npm run dev` and open its **localhost** URL in the PC browser. Click «Testar
-som», then «Ativar olhar», grant camera access and calibrate. To test compiled assets and CSP too,
-run `npm run build`, then `npx wrangler dev --local`.
+Connect a webcam, run `npm run dev` and open its **localhost** URL in the PC browser. Use the
+sound-test control, then the enable-gaze control, grant camera access and calibrate. To test
+compiled assets and CSP too, run `npm run build`, then `npx wrangler dev --local`.
 
 If you explicitly share that desktop browser page, the assistant can inspect the interface, errors,
 highlighted targets and browser console, and interact with controls. **The app hides the camera feed

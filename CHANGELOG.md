@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0
+
+- Superseded PR validation cancellation and separate TEST/PROD deployment queues with up to 100
+  waiting runs per environment.
+- Separate TEST Worker deployment after validated squash merges; same-tag GitHub prereleases with
+  generated release notes only after public deployment checks.
+- Manual tag-only PROD workflow with successful-run provenance, artifact identity/expiry/checksum
+  validation, approval support, exact tested static assets and stable release promotion.
+- Explicit Worker environments and safer local TEST deployment command.
+- Deployment regression tests and clean-start instructions for TEST/PROD Workers, tokens, GitHub
+  environments and manual promotion without Workers Builds.
+
 ## 0.1.0
 
 Initial experimental iPad-first pt-PT communication board.

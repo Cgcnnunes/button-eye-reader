@@ -36,7 +36,9 @@ before changing behavior. The same rules apply to humans and AI agents.
 8. **Squash merge only**, with the squash subject exactly equal to the PR title. No merge
    commits/rebase merges on main. Squashing frees intermediate feature IDs: the next main commit
    follows the last squash ID, not discarded feature IDs. The release workflow checks this policy
-   and creates an immutable `vX.Y.Z` tag.
+   and creates an immutable `vX.Y.Z` tag only after successful TEST deployment. The GitHub release
+   remains prerelease until manually promoted to PROD with that tag; see
+   [DEPLOYMENT.md](DEPLOYMENT.md).
 
 Legacy `Initial commit` is the sole bootstrap history exception. Existing commits and private
 tooling checkpoint refs are not rewritten. The initial implementation and safeguards are delivered
@@ -53,6 +55,9 @@ and tests; do not add unrelated filler to satisfy the hook.
 
 ## Code style and safety
 
+- Write repository code, comments, documentation and tooling messages in English. Only user-facing
+  site content is pt-PT. Describe controls in English in documentation; localized test fixtures must
+  match the actual site.
 - Strict, type-aware ESLint, zero warnings. No explicit `any`, unsafe typed access, non-null
   assertions, floating promises or unhandled async event callbacks.
 - Explicit return annotations on named functions/methods and assigned helpers. Inline/contextually

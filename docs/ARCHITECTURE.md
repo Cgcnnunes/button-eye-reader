@@ -2,15 +2,16 @@
 
 ## Purpose and limits
 
-O meu olhar is an experimental pt-PT communication board for an iPad A16. Four large phrases can be
-spoken by touch or calibrated gaze. Catalogue navigation and slot replacement must remain usable
-without typing; only adding a new phrase is caregiver-only. This is not a medical device or an
-emergency communication system.
+Button Eye Reader is an experimental pt-PT communication board for an iPad A16. Four large phrases
+can be spoken by touch or calibrated gaze. Catalogue navigation and slot replacement must remain
+usable without typing; only adding a new phrase is caregiver-only. This is not a medical device or
+an emergency communication system.
 
 The app is static TypeScript and CSS, bundled by Vite. There is no UI framework, server, account,
 database or external speech API. Node.js is build/tooling only. Cloudflare Workers Static Assets
-serves the build over HTTPS; Workers Builds publishes from GitHub. Cloudflare Pipelines (data
-ingestion) is not used.
+serves the build over HTTPS. GitHub Actions deploys merges to a separate TEST Worker; PROD is a
+manual tag-only promotion of the tested artifact. Do not connect Workers Builds; Cloudflare
+Pipelines (data ingestion) is not used.
 
 ## Runtime flow
 
@@ -39,18 +40,29 @@ safeguards reduce errors, not eliminate them.
 
 ## Sources of truth
 
-| Concern                                     | Authority                                                         |
-| ------------------------------------------- | ----------------------------------------------------------------- |
-| Phrase text/default ordering/storage schema | `src/store.ts`                                                    |
-| Gaze/dwell acceptance thresholds            | `src/gaze-math.ts`, `src/dwell.ts`, `src/main.ts`; boundary tests |
-| App and repository version                  | `package.json`; lockfile root mirrors it                          |
-| Displayed app version                       | Vite injects `package.json` version                               |
-| Released version                            | Immutable annotated `vX.Y.Z` tag on a validated squash merge      |
-| Branch high-water mark                      | `.reader-sequence.json`, advanced by `branch:new`                 |
-| Commit/PR/release rules                     | `scripts/policy.ts`; hooks and CI share it                        |
-| Formatting and lint                         | `.prettierrc.json`, `eslint.config.mjs`                           |
-| Build/deploy identity                       | `wrangler.jsonc`; dashboard Worker name must match                |
-| Required contributor process                | [CONTRIBUTING.md](CONTRIBUTING.md)                                |
+| Concern                                     | Authority                                                                     |
+| ------------------------------------------- | ----------------------------------------------------------------------------- |
+| Phrase text/default ordering/storage schema | `src/store.ts`                                                                |
+| Gaze/dwell acceptance thresholds            | `src/gaze-math.ts`, `src/dwell.ts`, `src/main.ts`; boundary tests             |
+| App and repository version                  | `package.json`; lockfile root mirrors it                                      |
+| Displayed app version                       | Vite injects `package.json` version                                           |
+| Released version                            | Immutable annotated `vX.Y.Z` tag after successful TEST; prerelease until PROD |
+| Branch high-water mark                      | `.reader-sequence.json`, advanced by `branch:new`                             |
+| Commit/PR/release rules                     | `scripts/policy.ts`; hooks and CI share it                                    |
+| Formatting and lint                         | `.prettierrc.json`, `eslint.config.mjs`                                       |
+| Build/deploy identity                       | `wrangler.jsonc`; dashboard Worker name must match                            |
+| Required contributor process                | [CONTRIBUTING.md](CONTRIBUTING.md)                                            |
+
+GitHub workflows own build/deploy commands and release promotion; GitHub Environments own secrets,
+URLs and approvals. Wrangler defines the two Worker names and static assets. Create both Workers
+without a GitHub Workers Builds connection. Follow [DEPLOYMENT.md](DEPLOYMENT.md) for fresh setup or
+changing deployment settings. Reload the dashboard to verify persistence and check the new build's
+branch/commit before declaring deployment successful. `release.json` identifies the deployed
+SHA/tag. PROD checks the exact TEST workflow attempt, main CI and immutable artifact ZIP digest,
+without recompiling. TEST/PROD use different origins, so phrase storage is independent. Public smoke
+tests verify exact asset bytes and headers, not physical-device acceptance. Failure after a
+Cloudflare deployment can leave that version live even if the GitHub release update fails; there is
+no cross-provider transaction.
 
 The storage schema's `version: 1` is **not** the application semantic version. Do not bump the
 storage schema just because an app release changes.
@@ -61,8 +73,8 @@ storage schema just because an app release changes.
 - `scripts/`: typed Node scripts for assets, policy and releases.
 - `tests/`: Vitest units, jsdom UI tests and repository policy tests.
 - `public/`: static headers/notices and ignored generated vision assets.
-- `.github/`: read-only PR validation, merged-PR release workflow, PR template and concise always-on
-  Copilot instructions.
+- `.github/`: read-only PR validation, `deploy-to-test.yml`, tag-dispatched `deploy-to-prod.yml`, PR
+  template and concise always-on Copilot instructions.
 - `docs/`: architecture, contribution rules, commands/manual tests and releases.
 
 TypeScript is pinned to the supported 6.0 series because typescript-eslint currently declares

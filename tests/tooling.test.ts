@@ -6,6 +6,35 @@ import { describe, expect, it } from 'vitest';
 const root = fileURLToPath(new URL('../', import.meta.url));
 
 describe('mandatory lint and hook configuration', () => {
+  it('cancels superseded PR validation while queueing deployments independently', () => {
+    const validation = readFileSync(
+      new URL('../.github/workflows/execute-pr-validation.yml', import.meta.url),
+      'utf8',
+    );
+
+    expect(validation).toContain(
+      'group: pr-validation-${{ github.event.pull_request.number || github.sha }}',
+    );
+
+    expect(validation).toContain("cancel-in-progress: ${{ github.event_name == 'pull_request' }}");
+
+    for (const [file, group] of [
+      ['deploy-to-test.yml', 'deploy-test'],
+      ['deploy-to-prod.yml', 'deploy-production'],
+    ]) {
+      const workflow = readFileSync(
+        new URL(`../.github/workflows/${file}`, import.meta.url),
+        'utf8',
+      );
+
+      expect(workflow).toContain(`group: ${group}`);
+
+      expect(workflow).toContain('cancel-in-progress: false');
+
+      expect(workflow).toContain('queue: max');
+    }
+  });
+
   it('enforces types, sorting, quote style and statement spacing', async () => {
     const eslint = new ESLint({ cwd: root });
     const results = await eslint.lintText(
@@ -53,5 +82,54 @@ export function probe(value: any) {
         precommit: 'npm run docs:check && lint-staged && npm run check && npm test',
       },
     });
+  });
+
+  it('keeps TEST deployment before prereleases and PROD manual, tag-only and artifact-based', () => {
+    const test = readFileSync(
+      new URL('../.github/workflows/deploy-to-test.yml', import.meta.url),
+      'utf8',
+    );
+    const production = readFileSync(
+      new URL('../.github/workflows/deploy-to-prod.yml', import.meta.url),
+      'utf8',
+    );
+
+    expect(test).toContain('types: [closed]');
+
+    expect(test).toContain('github.event.pull_request.merged == true');
+
+    expect(test).not.toContain('--env production');
+
+    expect(test.indexOf('npm run verify')).toBeLessThan(test.indexOf('--env test'));
+
+    expect(test.indexOf('smoke test')).toBeLessThan(test.indexOf('actions/upload-artifact@v4'));
+
+    expect(test.indexOf('actions/upload-artifact@v4')).toBeLessThan(
+      test.indexOf('release.ts publish'),
+    );
+
+    expect(production).toContain('workflow_dispatch:');
+
+    expect(production).not.toMatch(/^\s+(push|pull_request):/m);
+
+    expect(production).toContain('RELEASE_TAG: ${{ inputs.tag }}');
+
+    expect(production).toContain('TEST_APPROVED: ${{ inputs.test_approved }}');
+
+    expect(production).toContain('environment: production');
+
+    expect(production).toContain('ref: ${{ needs.validate.outputs.sha }}');
+
+    expect(production).toContain('npm ci --ignore-scripts');
+
+    expect(production).not.toMatch(/npm run (build|verify)|vite build/);
+
+    expect(production.indexOf('deployment.ts download')).toBeLessThan(
+      production.indexOf('--env production'),
+    );
+
+    expect(production.indexOf('smoke production')).toBeLessThan(
+      production.indexOf('deployment.ts promote'),
+    );
   });
 });

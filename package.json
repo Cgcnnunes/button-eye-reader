@@ -1,6 +1,6 @@
 {
   "name": "button-eye-reader",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -13,7 +13,7 @@
     "check": "tsc --noEmit",
     "commit:next": "node scripts/repository.ts next",
     "commitlint": "commitlint",
-    "deploy": "npm run verify && wrangler deploy",
+    "deploy": "npm run verify && wrangler deploy --env test",
     "dev": "vite --host 127.0.0.1",
     "docs:check": "node scripts/repository.ts staged",
     "format": "prettier --write .",

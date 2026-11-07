@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { deploymentRecord, integer, object, parseProof, text } from './deployment-policy.ts';
+import { api, previousStable, required, successfulValidation } from './deployment.ts';
 import { git, lines } from './git.ts';
 import {
   assertDocumentation,
@@ -24,16 +26,19 @@ interface MergedEvent {
 }
 
 const path = process.env.GITHUB_EVENT_PATH;
-const token = process.env.GITHUB_TOKEN;
 
-if (!path || !token) {
+if (!path || !process.env.GITHUB_TOKEN) {
   throw new Error('Release runs only in the authenticated merged-PR workflow.');
 }
 
 const event = JSON.parse(readFileSync(path, 'utf8')) as MergedEvent;
 const pr = event.pull_request;
 
-if (!pr.merged || pr.base.ref !== 'main') {
+if (
+  !pr.merged ||
+  pr.base.ref !== 'main' ||
+  event.repository.full_name !== required('GITHUB_REPOSITORY')
+) {
   throw new Error('Only merged PRs targeting main can release.');
 }
 
@@ -67,48 +72,106 @@ if (exists && git('rev-list', '-n', '1', tag) !== sha) {
   throw new Error(`${tag} already points to another commit; release tags are immutable.`);
 }
 
+if (exists && git('cat-file', '-t', `refs/tags/${tag}`) !== 'tag') {
+  throw new Error('Existing release tag must be annotated.');
+}
+
 const previous = latestVersion(lines(git('tag', '--merged', `${sha}^`, '--list', 'v*')));
 
 assertVersion(pkg.version, previous, kind);
 
 assertLockVersion(pkg.version, JSON.parse(readFileSync('package-lock.json', 'utf8')) as unknown);
 
-if (!exists) {
-  git('config', 'user.name', 'github-actions[bot]');
+const command = process.argv[2];
 
-  git('config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com');
-
-  git('tag', '-a', tag, sha, '-m', `Release ${tag}`);
-
-  git('push', 'origin', `refs/tags/${tag}`);
+if (command !== 'prepare' && command !== 'publish') {
+  throw new Error('Release requires prepare before TEST or publish after successful TEST.');
 }
 
-const url = `https://api.github.com/repos/${event.repository.full_name}/releases`;
-const headers = {
-  Accept: 'application/vnd.github+json',
-  Authorization: `Bearer ${token}`,
-  'X-GitHub-Api-Version': '2022-11-28',
-};
-const existing = await fetch(`${url}/tags/${tag}`, { headers });
+if (command === 'prepare') {
+  required('CLOUDFLARE_ACCOUNT_ID');
 
-if (existing.status === 404) {
-  const result = await fetch(url, {
-    body: JSON.stringify({
-      body: `Release ${kind} from #${pr.number}.\n\n${pr.body ?? ''}`,
-      generate_release_notes: false,
-      name: tag,
+  required('CLOUDFLARE_API_TOKEN');
+
+  await successfulValidation(sha, true);
+
+  if (exists) {
+    const existing = await api(`/releases/tags/${tag}`);
+
+    if (existing !== null) {
+      const release = object(existing);
+
+      if (release.prerelease !== true || parseProof(release.body).sha !== sha) {
+        throw new Error('Cannot retest an already stable or unrelated release tag.');
+      }
+    }
+  }
+
+  writeFileSync('dist/release.json', `${JSON.stringify({ sha, tag })}\n`);
+
+  console.log(`Prepared ${tag} at ${sha} for TEST; no tag or release created.`);
+} else {
+  await successfulValidation(sha);
+
+  const deployment = deploymentRecord(readFileSync(required('DEPLOYMENT_OUTPUT'), 'utf8'), 'test');
+  const proof = {
+    artifact: integer(Number(required('ARTIFACT_ID'))),
+    attempt: integer(Number(required('GITHUB_RUN_ATTEMPT'))),
+    digest: `sha256:${required('ARTIFACT_DIGEST')}`,
+    run: integer(Number(required('GITHUB_RUN_ID'))),
+    sha,
+    ...deployment,
+  };
+  const metadata = `<!-- tested-deployment ${JSON.stringify(proof)} -->`;
+
+  parseProof(metadata);
+
+  const previousTag = await previousStable();
+  const notes = object(
+    await api('/releases/generate-notes', 'POST', {
+      ...(previousTag ? { previous_tag_name: previousTag } : {}),
       tag_name: tag,
       target_commitish: sha,
     }),
-    headers: { ...headers, 'Content-Type': 'application/json' },
-    method: 'POST',
-  });
+  );
+  const body = `${text(notes.body)}\n\nTEST: ${deployment.url}\n\n${metadata}`;
+  const existing = await api(`/releases/tags/${tag}`);
 
-  if (!result.ok) {
-    throw new Error(`Release creation failed (${result.status}): ${await result.text()}`);
+  if (existing !== null) {
+    const release = object(existing);
+
+    if (release.prerelease !== true || parseProof(release.body).sha !== sha) {
+      throw new Error('Existing release is stable or belongs to another TEST commit.');
+    }
   }
-} else if (!existing.ok) {
-  throw new Error(`Release lookup failed (${existing.status}): ${await existing.text()}`);
-}
 
-console.log(`Published ${tag} at ${sha}.`);
+  if (!exists) {
+    git('config', 'user.name', 'github-actions[bot]');
+
+    git('config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com');
+
+    git('tag', '-a', tag, sha, '-m', `Release ${tag}`);
+
+    git('push', 'origin', `refs/tags/${tag}`);
+  }
+
+  appendFileSync(
+    required('GITHUB_STEP_SUMMARY'),
+    `\nPrerelease ${tag}: ${deployment.url}\n\nPROD requires Deploy to PROD dispatch with tag ${tag}.\n`,
+  );
+
+  await api(
+    existing === null ? '/releases' : `/releases/${integer(object(existing).id)}`,
+    existing === null ? 'POST' : 'PATCH',
+    {
+      body,
+      make_latest: 'false',
+      name: tag,
+      prerelease: true,
+      tag_name: tag,
+      target_commitish: sha,
+    },
+  );
+
+  console.log(`Published TEST prerelease ${tag} at ${sha}.`);
+}
