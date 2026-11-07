@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0
+
+- Separate TEST Worker deployment after validated squash merges; same-tag GitHub prereleases with
+  generated release notes only after public deployment checks.
+- Manual tag-only PROD workflow with successful-run provenance, artifact identity/expiry/checksum
+  validation, approval support, exact tested static assets and stable release promotion.
+- Explicit Worker environments and safer local TEST deployment command.
+- Deployment regression tests and setup/migration guidance requiring removal of the old automatic
+  Workers Builds production connection.
+
 ## 0.1.0
 
 Initial experimental iPad-first pt-PT communication board.

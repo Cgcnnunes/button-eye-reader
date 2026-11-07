@@ -5,7 +5,7 @@ export default defineConfig({
   test: {
     coverage: {
       exclude: ['src/env.d.ts'],
-      include: ['src/**/*.ts', 'scripts/policy.ts'],
+      include: ['src/**/*.ts', 'scripts/policy.ts', 'scripts/deployment-policy.ts'],
       provider: 'v8',
       reporter: ['text', 'html', 'json-summary'],
       thresholds: { branches: 80, functions: 90, lines: 90, perFile: true, statements: 90 },

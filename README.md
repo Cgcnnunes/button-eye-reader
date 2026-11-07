@@ -87,36 +87,31 @@ thread principal; teste fluidez, temperatura e bateria no iPad.
 
 ## Publicar com Cloudflare e GitHub
 
-Use **Cloudflare Workers Static Assets + Workers Builds**, a pipeline nativa de Cloudflare.
-«Cloudflare Pipelines» é um produto de ingestão de dados e não é necessário para publicar este site.
+Use **Cloudflare Workers Static Assets**, publicados por **GitHub Actions** em dois Workers.
+«Cloudflare Pipelines» é ingestão de dados e não é usado. **Workers Builds deve estar desligado**: a
+ligação antiga de `main` a PROD contornaria a aprovação manual.
 
-1. Crie o repositório GitHub e envie este projeto, incluindo `package-lock.json`. Não envie
-   `node_modules`, `dist`, modelos gerados nem credenciais.
-2. Em Cloudflare: **Workers & Pages → Create application → GitHub**. Autorize o repositório e
-   selecione-o.
-3. Nome do Worker: **`button-eye-reader`**, igual ao campo `name` de `wrangler.jsonc`.
-4. Diretório raiz: raiz do repositório. Branch de produção: **`main`**.
-5. Comando de construção: **`npm ci && npm run verify`**.
-6. Comando de publicação: **`npx wrangler deploy`**. Use Node 22.22.2+ no ambiente de construção
-   (por exemplo, variável `NODE_VERSION=22.22.2`).
-7. Publique e abra o endereço HTTPS `*.workers.dev` no iPad. Pode adicionar um domínio próprio
-   depois. Escolha a origem definitiva antes de guardar frases.
+Siga o [guia de configuração, recuperação e verificação](docs/DEPLOYMENT.md), também reutilizável
+para novas aplicações estáticas. **Antes de ativar os workflows, confirme que `main` já existe no
+GitHub e é a branch predefinida.** Depois de guardar a configuração Cloudflare, recarregue o painel
+e confirme os dois Workers e os ambientes GitHub; definições externas não mudam só por editar YAML.
 
-Cada push para `main` desencadeia a construção/publicação em Cloudflare. GitHub Actions executa
-testes e construção em pull requests e em `main`; não requer segredos Cloudflare. Os testes também
-fazem parte da construção Cloudflare para impedir a publicação se falharem. Configure as
-verificações GitHub como obrigatórias na proteção da branch se pretender exigir revisão antes da
-publicação. Para a primeira versão, desative builds de branches não produtivas no painel; ou
-configure o comando de pré-visualização conforme a documentação de Workers Builds.
+Cada squash merge em `main` valida e publica **apenas TEST**. Só depois de sucesso cria uma tag
+`vX.Y.Z` e uma GitHub prerelease com notas automáticas. Após testar, execute **Deploy to PROD** com
+essa tag: valida a proveniência e publica o mesmo artefacto, sem reconstrução; só depois torna a
+mesma release estável. Consulte o guia para configurar tokens, URLs e aprovação de `production`.
 
-Alternativa manual autenticada:
+Aplicação publicada: <https://button-eye-reader.cgcnnunes.workers.dev>. Escolha a origem definitiva
+antes de guardar frases; mudar de domínio não transfere `localStorage`.
+
+Alternativa local autenticada para **TEST apenas**, sem criar uma prerelease elegível:
 
 ```sh
 npx wrangler login
 npm run deploy
 ```
 
-As configurações e pipelines estão preparadas; é necessário ligar as suas contas no painel. Não
+Para outra conta ou aplicação, configure os Workers e GitHub Environments seguindo o guia. Não
 existe autenticação Cloudflare ou GitHub incluída no projeto.
 
 ## Primeiro teste no iPad (com acompanhamento)
