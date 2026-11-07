@@ -2,9 +2,7 @@
 
 ## Repository setup (owner action)
 
-1. In GitHub **Settings → Branches / Default branch**, choose `main`. A main branch has been pushed.
-   Confirm the setting before deleting the old remote `master`; GitHub will not allow deleting its
-   current default branch.
+1. In GitHub **Settings → Branches / Default branch**, choose `main` and confirm it exists remotely.
 2. In **Settings → General → Pull Requests**, enable **squash merging only**. Set the default squash
    subject to the PR title. Disable merge commits and rebase merging. Keep documentation/PR context
    in the body.
@@ -14,9 +12,9 @@
 4. Permit `Deploy to TEST` to create tags/prereleases and protected `Deploy to PROD` to update
    releases. Optionally protect release tags against modification/deletion while allowing the
    workflow to create new ones.
-5. Follow [DEPLOYMENT.md](DEPLOYMENT.md): disconnect old Workers Builds before the next merge,
-   create a separate TEST Worker and GitHub `test`/`production` environments with scoped secrets,
-   correct URLs and production reviewers where supported.
+5. Follow [DEPLOYMENT.md](DEPLOYMENT.md): create TEST and PROD Workers from scratch without Workers
+   Builds and GitHub `test`/`production` environments with scoped secrets, correct URLs and
+   production reviewers where supported.
 
 Branch settings/merge permissions are server-side configuration, not something installing Husky or
 committing YAML can enforce on its own.
@@ -89,7 +87,7 @@ Dispatch alone does not prove iPad acceptance.
 If Cloudflare succeeds but smoke tests or release promotion fail, PROD may already be updated.
 Investigate and retry while the release is still prerelease; no automatic rollback is promised.
 Artifacts expire after 90 days: rerun TEST and repeat acceptance, never silently rebuild for PROD.
-The legacy v0.1.0 release has no TEST provenance and is deliberately ineligible.
+Only releases with successful TEST provenance are eligible; deleting Workers does not reset tags.
 
 ## Small PR template
 

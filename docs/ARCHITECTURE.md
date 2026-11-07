@@ -2,15 +2,15 @@
 
 ## Purpose and limits
 
-O meu olhar is an experimental pt-PT communication board for an iPad A16. Four large phrases can be
-spoken by touch or calibrated gaze. Catalogue navigation and slot replacement must remain usable
-without typing; only adding a new phrase is caregiver-only. This is not a medical device or an
-emergency communication system.
+Button Eye Reader is an experimental pt-PT communication board for an iPad A16. Four large phrases
+can be spoken by touch or calibrated gaze. Catalogue navigation and slot replacement must remain
+usable without typing; only adding a new phrase is caregiver-only. This is not a medical device or
+an emergency communication system.
 
 The app is static TypeScript and CSS, bundled by Vite. There is no UI framework, server, account,
 database or external speech API. Node.js is build/tooling only. Cloudflare Workers Static Assets
 serves the build over HTTPS. GitHub Actions deploys merges to a separate TEST Worker; PROD is a
-manual tag-only promotion of the tested artifact. Workers Builds must be disconnected; Cloudflare
+manual tag-only promotion of the tested artifact. Do not connect Workers Builds; Cloudflare
 Pipelines (data ingestion) is not used.
 
 ## Runtime flow
@@ -54,15 +54,15 @@ safeguards reduce errors, not eliminate them.
 | Required contributor process                | [CONTRIBUTING.md](CONTRIBUTING.md)                                            |
 
 GitHub workflows own build/deploy commands and release promotion; GitHub Environments own secrets,
-URLs and approvals. Wrangler defines the two Worker names and static assets. The old Cloudflare
-Workers Builds connection must be removed externally; YAML does not disable it automatically. Follow
-[DEPLOYMENT.md](DEPLOYMENT.md) when connecting another app or changing deployment settings. Reload
-the dashboard to verify persistence and check the new build's branch/commit before declaring
-deployment successful. `release.json` identifies the deployed SHA/tag. PROD checks the exact TEST
-workflow attempt, main CI and immutable artifact ZIP digest, without recompiling. TEST/PROD use
-different origins, so phrase storage is independent. Public smoke tests verify exact asset bytes and
-headers, not physical-device acceptance. Failure after a Cloudflare deployment can leave that
-version live even if the GitHub release update fails; there is no cross-provider transaction.
+URLs and approvals. Wrangler defines the two Worker names and static assets. Create both Workers
+without a GitHub Workers Builds connection. Follow [DEPLOYMENT.md](DEPLOYMENT.md) for fresh setup or
+changing deployment settings. Reload the dashboard to verify persistence and check the new build's
+branch/commit before declaring deployment successful. `release.json` identifies the deployed
+SHA/tag. PROD checks the exact TEST workflow attempt, main CI and immutable artifact ZIP digest,
+without recompiling. TEST/PROD use different origins, so phrase storage is independent. Public smoke
+tests verify exact asset bytes and headers, not physical-device acceptance. Failure after a
+Cloudflare deployment can leave that version live even if the GitHub release update fails; there is
+no cross-provider transaction.
 
 The storage schema's `version: 1` is **not** the application semantic version. Do not bump the
 storage schema just because an app release changes.

@@ -7,8 +7,8 @@
 - Manual tag-only PROD workflow with successful-run provenance, artifact identity/expiry/checksum
   validation, approval support, exact tested static assets and stable release promotion.
 - Explicit Worker environments and safer local TEST deployment command.
-- Deployment regression tests and setup/migration guidance requiring removal of the old automatic
-  Workers Builds production connection.
+- Deployment regression tests and clean-start instructions for TEST/PROD Workers, tokens, GitHub
+  environments and manual promotion without Workers Builds.
 
 ## 0.1.0
 

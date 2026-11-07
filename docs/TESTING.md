@@ -75,9 +75,9 @@ person's image, private phrases or other identifying information.
 
 ## Manual option 2: PC webcam and shared browser
 
-Connect a webcam, run `npm run dev` and open its **localhost** URL in the PC browser. Click «Testar
-som», then «Ativar olhar», grant camera access and calibrate. To test compiled assets and CSP too,
-run `npm run build`, then `npx wrangler dev --local`.
+Connect a webcam, run `npm run dev` and open its **localhost** URL in the PC browser. Use the
+sound-test control, then the enable-gaze control, grant camera access and calibrate. To test
+compiled assets and CSP too, run `npm run build`, then `npx wrangler dev --local`.
 
 If you explicitly share that desktop browser page, the assistant can inspect the interface, errors,
 highlighted targets and browser console, and interact with controls. **The app hides the camera feed

@@ -1,4 +1,4 @@
-# O meu olhar
+# Button Eye Reader
 
 ## Developers and AI
 
@@ -9,8 +9,8 @@ Start with [contributor rules](docs/CONTRIBUTING.md),
 Use feature branches, strict checks and reviewed squash PRs to main.
 
 Repository code, comments, documentation and tooling messages must be in **English**. Only
-user-facing site content is **pt-PT**. Exact UI labels quoted in documentation or tests remain pt-PT
-so they match the site.
+user-facing site content is **pt-PT**. Describe controls in English in documentation; localized test
+fixtures must still match the actual site.
 
 The current version is in `package.json` and the app footer; released versions use immutable
 `vX.Y.Z` tags. See [CHANGELOG.md](CHANGELOG.md).
@@ -21,11 +21,11 @@ prototype** using the front camera.
 
 ## Included features
 
-- Four configurable phrases, initially "Sim", "Não", "Quero água" and "Preciso de ajuda".
-- "Escolher outra frase": a catalogue with four phrases per page. Choose a phrase, then the speaking
+- Four configurable phrases, initially meaning yes, no, wanting water and needing help.
+- Phrase selection: a catalogue with four phrases per page. Choose a phrase, then the speaking
   button to replace. The entire flow supports touch or gaze without typing.
-- "Adicionar frase": caregiver-only text entry, storing up to 100 characters per phrase. Gaze is
-  disabled before opening the keyboard.
+- Add phrase: caregiver-only text entry, storing up to 100 characters per phrase. Gaze is disabled
+  before opening the keyboard.
 - 28 initial pt-PT phrases. New phrases and button assignments are stored in `localStorage`. There
   is no account, database, cross-device synchronization or image collection.
 - System speech, preferring a **pt-PT** voice. No external speech service is used.
@@ -50,10 +50,10 @@ prove ongoing accuracy. No face, multiple faces, closed eyes, frozen frames or d
 calibrated range interrupt selection. Incorrect detections can still select the wrong phrase. If
 errors occur, disable gaze and use another supervised communication method.
 
-Safari may block speech without a recent touch gesture. "Testar som" and "Ativar olhar" initiate
-speech through touch, but **do not guarantee** permanent authorization. Speech failures and the
-absence of a confirmed pt-PT voice are shown on screen. Check Portuguese voice availability in the
-iPad accessibility/spoken-content settings, volume and audio output. Listen to the actual accent
+Safari may block speech without a recent touch gesture. The sound-test and enable-gaze controls
+initiate speech through touch, but **do not guarantee** permanent authorization. Speech failures and
+the absence of a confirmed pt-PT voice are shown on screen. Check Portuguese voice availability in
+the iPad accessibility/spoken-content settings, volume and audio output. Listen to the actual accent
 before use.
 
 Phrases persist only in this browser and origin. Changing domains, clearing browser data, private
@@ -89,8 +89,8 @@ and battery usage on the iPad.
 ## Deployment with Cloudflare and GitHub
 
 Use **Cloudflare Workers Static Assets**, deployed by **GitHub Actions** to two Workers. Cloudflare
-Pipelines is a data-ingestion product and is not used. **Workers Builds must be disconnected**: the
-old `main`-to-PROD connection would bypass manual approval.
+Pipelines is a data-ingestion product and is not used. **Do not connect Workers Builds**: automatic
+production deployment would bypass manual approval.
 
 Follow the [setup, recovery and verification guide](docs/DEPLOYMENT.md), also reusable for other
 static apps. **Before enabling workflows, confirm that `main` exists on GitHub and is the default
@@ -102,8 +102,9 @@ a `vX.Y.Z` tag and GitHub prerelease with generated notes. After testing, dispat
 PROD** with that tag: it validates provenance and deploys the same artifact without rebuilding, then
 makes the same release stable. See the guide for tokens, URLs and `production` approval setup.
 
-Published app: <https://button-eye-reader.cgcnnunes.workers.dev>. Choose the final origin before
-storing phrases; changing domains does not transfer `localStorage`.
+Create both TEST and PROD Workers from scratch using the guide and copy their actual URLs. The
+starter content is replaced only by the respective workflow. Choose the final origin before storing
+phrases; changing domains does not transfer `localStorage`.
 
 Authenticated local alternative for **TEST only**, without creating an eligible prerelease:
 
@@ -121,15 +122,15 @@ or GitHub credentials are included in the project.
    also uses a 2-by-2 grid.
 2. Mount the iPad securely at eye level with uniform lighting. Only the intended user should appear
    in the camera. Do not change the distance after calibration.
-3. Tap "Testar som". Confirm pt-PT voice, volume and audio output.
+3. Tap the sound-test control. Confirm pt-PT voice, volume and audio output.
 4. Test all four speaking buttons by touch, a catalogue replacement, a new phrase and persistence
    after reloading.
-5. Tap "Ativar olhar", grant camera permission and ask the user to follow the centre of the circle
-   with their eyes, without touching. Stable calibration takes approximately 40 seconds.
+5. Tap the enable-gaze control, grant camera permission and ask the user to follow the centre of the
+   circle with their eyes, without touching. Stable calibration takes approximately 40 seconds.
 6. After validation, look outside the last circle. Test **every** button several times. Confirm
    there is no speech before two seconds, no repeat without looking away and no selection in gaps.
-7. Test "Escolher outra frase", "Seguinte/Anterior", phrase selection and replacement using gaze
-   alone. Confirm pauses with closed eyes or another face entering the camera.
+7. Test the catalogue, next/previous navigation, phrase selection and replacement using gaze alone.
+   Confirm pauses with closed eyes or another face entering the camera.
 8. Change orientation or leave and return: the camera must stop and require recalibration. Run a
    longer supervised session to detect drift and audio failures.
 
