@@ -160,7 +160,7 @@ describe('deployment provenance and exact-tag promotion policy', () => {
       deploymentRecord(
         JSON.stringify({
           ...record,
-          targets: ['https://button-eye-reader.example.workers.dev'],
+          targets: ['https://button-eye-reader-prod.example.workers.dev'],
           worker_name: 'button-eye-reader',
           wrangler_environment: 'production',
         }),

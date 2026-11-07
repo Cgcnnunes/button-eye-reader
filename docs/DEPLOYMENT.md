@@ -46,7 +46,7 @@ placeholders):
 
 ```text
 TEST: https://button-eye-reader-test.<account-subdomain>.workers.dev
-PROD: https://button-eye-reader.<account-subdomain>.workers.dev
+PROD: https://button-eye-reader-prod.<account-subdomain>.workers.dev
 ```
 
 Copy actual URLs from the dashboard instead of guessing or reusing a previously deleted Worker's
