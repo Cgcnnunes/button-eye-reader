@@ -133,7 +133,7 @@ describe('deployment provenance and exact-tag promotion policy', () => {
     { head_branch: 'reader-00002' },
     { head_sha: 'c'.repeat(40) },
     { id: 99 },
-    { path: '.github/workflows/ci.yml' },
+    { path: '.github/workflows/execute-pr-validation.yml' },
     { run_attempt: 2 },
     { status: 'in_progress' },
   ])('rejects a failed, unrelated or changed TEST workflow %j', (change) => {

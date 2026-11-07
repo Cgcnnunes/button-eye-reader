@@ -1,14 +1,19 @@
 name: Deploy to TEST
+
 on:
   pull_request:
     branches: [main]
     types: [closed]
+
 permissions:
   contents: write
   actions: read
+
 concurrency:
   group: deploy-test
   cancel-in-progress: false
+  queue: max
+
 jobs:
   test:
     if: github.event.pull_request.merged == true

@@ -6,7 +6,7 @@
 2. In **Settings → General → Pull Requests**, enable **squash merging only**. Set the default squash
    subject to the PR title. Disable merge commits and rebase merging. Keep documentation/PR context
    in the body.
-3. Protect main using a ruleset: require a PR, required `Validate / validate` status check,
+3. Protect main using a ruleset: require a PR, the `validate` check from **Execute PR Validation**,
    up-to-date branches, linear history, no force pushes/deletion, and approval as desired. Configure
    rules so admins do not accidentally bypass.
 4. Permit `Deploy to TEST` to create tags/prereleases and protected `Deploy to PROD` to update
@@ -47,6 +47,12 @@ reuse them just because they have not reached PROD. If the previous TEST workflo
 wait; do not invent a version or overwrite a tag.
 
 ## Automatic TEST prerelease after merge
+
+`execute-pr-validation.yml` cancels older validation runs for the same PR after a new push. Main
+validation is isolated by commit SHA and is not canceled by subsequent main pushes. Each deployment
+workflow serializes its own environment with `queue: max` and no cancellation of active runs. Up to
+100 runs wait; excess runs are canceled. TEST and PROD have independent queues. Queue order follows
+entry into the concurrency group, not guaranteed merge/dispatch order.
 
 `deploy-to-test.yml` handles a **merged PR to main**, checks out its squash SHA, runs full
 verification and waits for successful main `Validate`, then:

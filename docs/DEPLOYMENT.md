@@ -108,7 +108,8 @@ Under **Settings -> Actions**, allow the workflows and actions used here. Jobs d
 permissions: TEST needs `contents: write` and `actions: read`; PROD uses read permissions for
 validation and write permissions only in the protected job that promotes the release. Allow the bot
 to create tags/releases; protect tags against modification/deletion without blocking authorized
-creation. Protect `main` with required PRs, squash-only merging and `Validate / validate`.
+creation. Protect `main` with required PRs, squash-only merging and the `validate` check from
+**Execute PR Validation** (`execute-pr-validation.yml`).
 
 Node comes from `.nvmrc` through `actions/setup-node`; Workers Builds no longer needs
 `NODE_VERSION`; do not configure a Cloudflare build command. TEST runs `npm ci` with lifecycle
@@ -155,10 +156,22 @@ acceptance. Use [TESTING.md](TESTING.md) with non-confidential test phrases.
    `--env production` and checks the PROD URL. **It does not run Vite or recompile the site.**
 6. Only afterwards does the same GitHub release become stable/latest. The tag remains unchanged.
 
-PROD has a separate concurrency group and does not cancel an active deployment. GitHub concurrency
-does not guarantee FIFO for all pending runs; wait for TEST completion before the next merge and
-promote one release at a time. Do not push directly to `main`: that can run `Validate` but does not
-produce an eligible TEST prerelease.
+### Workflow concurrency
+
+`execute-pr-validation.yml` groups runs by PR number: a new push or other validation event for that
+PR cancels its previous run. Different PRs remain independent. Main push validation uses the commit
+SHA and is not canceled by later pushes, because TEST requires successful validation of its exact
+SHA.
+
+TEST and PROD each have their own concurrency group, `cancel-in-progress: false` and `queue: max`.
+Only one run per environment executes at a time; up to 100 additional runs wait rather than replace
+each other. Additional runs beyond that limit are canceled by GitHub. TEST and PROD can execute
+simultaneously because they deploy different Workers.
+
+GitHub processes waiting runs in FIFO order by the time they enter the concurrency queue, not
+necessarily dispatch/merge order. Confirm TEST completion and the exact tested SHA before promotion.
+Do not push directly to `main`: that can run validation but does not produce an eligible TEST
+prerelease.
 
 ## 6. Troubleshooting
 

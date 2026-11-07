@@ -74,7 +74,9 @@ export async function previousStable(): Promise<string | undefined> {
 export async function successfulValidation(sha: string, wait = false): Promise<void> {
   for (let attempt = 0; attempt < (wait ? 120 : 1); attempt += 1) {
     const response = object(
-      await api(`/actions/workflows/ci.yml/runs?event=push&head_sha=${sha}&per_page=10`),
+      await api(
+        `/actions/workflows/execute-pr-validation.yml/runs?event=push&head_sha=${sha}&per_page=10`,
+      ),
     );
 
     if (!Array.isArray(response.workflow_runs)) {

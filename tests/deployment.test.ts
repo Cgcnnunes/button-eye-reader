@@ -93,7 +93,7 @@ function reply(path: string): Response {
     return new Response(archive);
   }
 
-  if (path.includes('/actions/workflows/ci.yml/runs?')) {
+  if (path.includes('/actions/workflows/execute-pr-validation.yml/runs?')) {
     return Response.json({ workflow_runs: [validation] });
   }
 

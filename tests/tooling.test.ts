@@ -6,6 +6,35 @@ import { describe, expect, it } from 'vitest';
 const root = fileURLToPath(new URL('../', import.meta.url));
 
 describe('mandatory lint and hook configuration', () => {
+  it('cancels superseded PR validation while queueing deployments independently', () => {
+    const validation = readFileSync(
+      new URL('../.github/workflows/execute-pr-validation.yml', import.meta.url),
+      'utf8',
+    );
+
+    expect(validation).toContain(
+      'group: pr-validation-${{ github.event.pull_request.number || github.sha }}',
+    );
+
+    expect(validation).toContain("cancel-in-progress: ${{ github.event_name == 'pull_request' }}");
+
+    for (const [file, group] of [
+      ['deploy-to-test.yml', 'deploy-test'],
+      ['deploy-to-prod.yml', 'deploy-production'],
+    ]) {
+      const workflow = readFileSync(
+        new URL(`../.github/workflows/${file}`, import.meta.url),
+        'utf8',
+      );
+
+      expect(workflow).toContain(`group: ${group}`);
+
+      expect(workflow).toContain('cancel-in-progress: false');
+
+      expect(workflow).toContain('queue: max');
+    }
+  });
+
   it('enforces types, sorting, quote style and statement spacing', async () => {
     const eslint = new ESLint({ cwd: root });
     const results = await eslint.lintText(
