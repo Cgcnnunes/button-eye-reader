@@ -1,5 +1,7 @@
 # Repository instructions
 
+- Keep repository code, comments, documentation and tooling messages in English. Use pt-PT only for
+  user-facing site content and exact UI labels/localized fixtures quoted in docs or tests.
 - Read [contribution rules](../docs/CONTRIBUTING.md), [architecture](../docs/ARCHITECTURE.md),
   [testing](../docs/TESTING.md) and [releases](../docs/RELEASES.md) before changing code.
 - Work on an incrementing `reader-00001` feature branch; never push implementation commits directly

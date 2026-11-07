@@ -55,6 +55,9 @@ and tests; do not add unrelated filler to satisfy the hook.
 
 ## Code style and safety
 
+- Write repository code, comments, documentation and tooling messages in English. Only user-facing
+  site content is pt-PT; preserve exact UI labels and localized fixtures when quoting or testing
+  them.
 - Strict, type-aware ESLint, zero warnings. No explicit `any`, unsafe typed access, non-null
   assertions, floating promises or unhandled async event callbacks.
 - Explicit return annotations on named functions/methods and assigned helpers. Inline/contextually
