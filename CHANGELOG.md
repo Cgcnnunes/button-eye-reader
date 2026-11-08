@@ -1,16 +1,23 @@
 # Changelog
 
+## 0.2.4
+
+- Fit the communication board and its controls in shorter iPad landscape viewports without clipping
+  the displayed phrases.
+
 ## 0.2.3
 
 - Clarify that production reviewer approval is conditional on GitHub settings availability and
   configuration, document the current tag-only environment restriction, and explain how to recover
   from a PROD URL mismatch after deployment.
 - Name the production Worker `button-eye-reader-prod` to match the configured PROD URL.
+- Clarify that pushes to `main` start TEST, but only eligible commits pass release checks and
+  deploy.
 
 ## 0.2.2
 
-- Deploy TEST on protected `main` pushes and promote PROD by dispatching the exact tested release
-  tag.
+- Start TEST on pushes to `main`, validate merged-PR release provenance before deployment, and
+  promote PROD by dispatching the exact tested release tag.
 
 ## 0.2.1
 

@@ -57,9 +57,10 @@ deployment workflow serializes its own environment with `queue: max` and no canc
 runs. Up to 100 runs wait; excess runs are canceled. TEST and PROD have independent queues. Queue
 order follows entry into the concurrency group, not guaranteed merge/dispatch order.
 
-`deploy-to-test.yml` handles pushes to `main`, checks out the pushed SHA, and runs full verification
-independently of PR validation. For release policy and provenance, it uses GitHub's commit-to-PR API
-to identify the unique merged same-repository PR for that squash commit, then:
+`deploy-to-test.yml` starts for every push to `main`, checks out the pushed SHA, and runs full
+verification independently of PR validation. For release policy and provenance, it uses GitHub's
+commit-to-PR API to identify the unique merged same-repository PR for that squash commit. Commits
+without that provenance fail before deployment. For eligible commits, it then:
 
 - verifies a one-parent squash commit whose subject equals the PR title, optionally followed by
   GitHub's exact ` (#<PR-number>)` suffix; other title changes are rejected;
@@ -75,11 +76,12 @@ to identify the unique merged same-repository PR for that squash commit, then:
   cannot be retested or mutated by this workflow.
 
 It does not create a second version-bump commit or push code directly to main. Tags are historical
-release markers. Pushing to main changes TEST only, not PROD. Protect main with required PRs and
-checks before enabling the workflow on a public repository; any push to main triggers TEST. The
-workflow does not merge PRs. An authorized owner/developer must review and squash merge only after
-green checks. If tagging succeeds but GitHub release creation fails, fix permissions and rerun the
-same workflow; do not delete the tag.
+release markers. A successful eligible push to main changes TEST only, not PROD. Every push starts
+the workflow, but commits without valid merged-PR release provenance fail before deployment. Protect
+main with required PRs and checks before enabling the workflow on a public repository. The workflow
+does not merge PRs. An authorized owner/developer must review and squash merge only after green
+checks. If tagging succeeds but GitHub release creation fails, fix permissions and rerun the same
+workflow; do not delete the tag.
 
 ## Manual PROD promotion
 

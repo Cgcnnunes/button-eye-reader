@@ -97,7 +97,7 @@ non-sensitive test phrases. Record device/browser/orientation, app version, whic
 exact visible errors.
 
 - [ ] Four large phrases and both lower controls fit without scrolling in both iPad orientations,
-      including a 100-character phrase.
+      including when Safari bars reduce the visible height and with a 100-character phrase.
 - [ ] Each phrase speaks correctly by touch; accent is pt-PT and volume/output work. Lack of an
       installed pt-PT voice is reported.
 - [ ] Catalogue has four choices/page; first/last navigation is disabled correctly.
