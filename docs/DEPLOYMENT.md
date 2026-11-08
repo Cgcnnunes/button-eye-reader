@@ -56,14 +56,172 @@ Configuration checks in `wrangler.jsonc`:
 
 - Worker names match the table; `workers_dev: true`, `preview_urls: false`.
 - Static assets come from `./dist`.
-- `/` and `/index.html` run through `src/worker.ts`, which serves assets unchanged.
+- `/`, `/index.html`, `/api/*` and `/app/*` run through `src/worker.ts`. The landing/login/setup
+  page is public. `/app` and all its descendants require a caregiver session cookie before any
+  static asset is served; optional TEST Access is an additional layer. Public assets do not
+  constitute permission to use the authenticated APIs.
 - No custom eye-tracking header or website camera permission is needed. Apple Eye Tracking is
   configured on the iPad independently of TEST/PROD. Optional Access authentication is unchanged.
 
 For another account, update URLs and secrets. For another app, also change Worker names in
 `scripts/deployment-policy.ts` and its tests. Separate Workers do not isolate future shared
-databases or bindings automatically. Choose the final origin before saving phrases: browser storage
-does not migrate between domains.
+databases or bindings automatically. TEST and PROD use separate D1 databases below; account boards
+belong to the corresponding environment, not browser local storage.
+
+### Provision the account databases before deployment
+
+**Remote deployment is blocked until the two placeholder database IDs in `wrangler.jsonc` are
+replaced with real, distinct D1 IDs.** The all-zero top-level ID is for local development only.
+There is no working-account fallback: absent `DB`, failed migrations, or unavailable D1 produce
+HTTP 503. Never point TEST and PROD at the same database.
+
+Using authenticated Wrangler in the correct Cloudflare account:
+
+```sh
+npx wrangler login
+npx wrangler d1 create button-eye-reader-test
+npx wrangler d1 create button-eye-reader-prod
+```
+
+Copy the returned IDs into `env.test.d1_databases[0].database_id` and
+`env.production.d1_databases[0].database_id`. Keep each binding named `DB` and each `migrations_dir`
+set to `migrations`. Confirm the selected account/IDs before applying:
+
+```sh
+npx wrangler d1 migrations apply DB --env test --remote
+npx wrangler d1 migrations apply DB --env production --remote
+```
+
+The TEST/PROD deployment workflows apply that environment's migrations before deployment. Tokens
+used for database creation, migration and account administration need **Account > D1 > Edit** for
+the intended account in addition to the existing Workers Scripts deployment permission. Use separate
+least-privilege administrator credentials; no administrator token belongs in browser assets. D1
+permissions are account-scoped, not a substitute for careful environment selection. Back up and
+review migrations before changing a live schema. Static release artifacts do not include or roll
+back caregiver database contents.
+
+Passwords use native WebCrypto PBKDF2-HMAC-SHA256 with **600,000 iterations**, a fresh 32-byte
+random salt and a 32-byte derived hash. There is no reduced-iteration fallback. The installed
+Miniflare/workerd runtime with compatibility date `2026-11-07` successfully derived an independent
+600,000-iteration test vector; the earlier reported 100,000 limit does not apply to this tested
+runtime. Re-run `tests/accounts.test.ts` before runtime upgrades. This is local runtime evidence,
+not a remote deployment measurement. Password operations can exceed the Workers Free CPU budget: use
+Workers Paid and measure/configure an adequate CPU limit before live provisioning. Do not reduce the
+KDF cost to make a Free deployment pass.
+
+### Invitation-only accounts and recovery
+
+There is **no public sign-up or administrator HTTP endpoint**. An authenticated operator creates
+accounts or recovery links with Wrangler:
+
+```sh
+node scripts/accounts.ts invite --env test --username caregiver --origin https://button-eye-reader-test.cgcnnunes.workers.dev
+node scripts/accounts.ts reset --env test --username caregiver --origin https://button-eye-reader-test.cgcnnunes.workers.dev
+node scripts/accounts.ts invite --env production --username caregiver --origin https://button-eye-reader-prod.cgcnnunes.workers.dev
+node scripts/accounts.ts reset --env production --username caregiver --origin https://button-eye-reader-prod.cgcnnunes.workers.dev
+```
+
+Usernames are case-insensitive, 3–64 ASCII characters, start with a letter/digit and otherwise allow
+letters, digits, `_`, `.` and `-`. A duplicate invitation fails; use reset for an existing account.
+Reset never creates an account. Each command prints exactly one private setup URL, valid for 24
+hours and usable once. Issuing a new link replaces any older unconsumed link for that account. The
+URL is `ORIGIN/#setup=TOKEN`: the fragment is not sent in the HTTP URL or Referer. The frontend
+removes it and submits it only to the same-origin setup API. Give this bearer link directly to the
+caregiver; do not paste it into shared logs, CI, analytics or tickets. No password is accepted as a
+CLI argument or printed. Passwords (12–128 characters) are chosen on the site. The temporary SQL
+file is created in the repository and removed in `finally`; it contains only the token hash, account
+identifiers and default board, never the raw link token or a password.
+
+Redeeming either link atomically changes the password, consumes all recovery links and revokes all
+older sessions for that account. Reset preserves the board and revision. An issued but unredeemed
+reset does not revoke current sessions; emergency revocation must be performed by an authenticated
+operator, for example:
+
+```sh
+npx wrangler d1 execute DB --env production --remote --command "DELETE FROM sessions WHERE account_id IN (SELECT id FROM accounts WHERE username = 'caregiver')"
+```
+
+Account boards are initialized once using `defaultBoard()`. Loading a saved board never imports
+browser storage, applies catalogue upgrades, or silently reorders preferences.
+
+### Sessions and API contract
+
+Every authenticated response validates its session against D1. Cookies contain only a random opaque
+token; D1 stores its SHA-256 hash, not the raw cookie. Cookies are `HttpOnly`, `SameSite=Strict`,
+`Secure`, `Path=/` and host-only (`__Host-reader`). Sessions have an absolute 30-day lifetime. At 24
+hours the token renews with an atomic compare-and-swap; concurrent renewals converge on one new
+opaque token. The previous token has a 60-second in-flight grace period. Renewal never extends the
+absolute expiry. Logout deletes the session, including its old-token grace. Password reset revokes
+all sessions, including concurrent logins guarded by the previous password hash.
+
+| Request            | JSON input             | Success                                                    |
+| ------------------ | ---------------------- | ---------------------------------------------------------- |
+| `GET /api/session` | None                   | `{username, csrf, board, revision}`                        |
+| `POST /api/login`  | `{username, password}` | Same session shape and cookie                              |
+| `POST /api/setup`  | `{token, password}`    | Same session shape and cookie; username preset by operator |
+| `POST /api/logout` | No body required       | 204 and expired cookie                                     |
+| `PUT /api/board`   | `{board, revision}`    | `{board, revision}` with revision incremented              |
+
+Logout and board writes require `x-csrf-token` from the session response. All mutations require an
+exact same-origin `Origin`; a present `Sec-Fetch-Site` must be `same-origin`. Login, setup and board
+writes require `application/json`. Credential failures are indistinguishable for nonexistent and
+existing usernames. D1-backed limits allow ten attempts per 15-minute window per hashed source IP
+and, for login, per hashed username; setup shares the IP limit. JSON bodies are capped at 70,000
+bytes. Boards retain exactly four valid slots, version 1, at most 256 phrases, 128-character IDs,
+100-character phrase text and 64,000 serialized characters.
+
+Unauthenticated API session requests return 401. Unauthenticated HTML GET requests to `/app` or its
+descendants redirect with 303 to `/`, including bookmarked pages after logout or session expiry.
+These redirects contain no credentials and retain the security headers and `no-store`; non-HTML app
+requests remain 401. The public root is served directly, without a login redirect. API failures have
+only `{error: string}` with visible pt-PT messages. A stale board revision returns **409** without
+overwriting stored data; refresh and deliberately resolve the conflict. Missing DB/infrastructure
+failures return 503. Dynamic responses deny framing and camera/microphone/geolocation, disallow
+referrers, and set `Cache-Control: no-store`. The Worker emits no sensitive
+request/account/phrase/password logs. Application permission does not disable Apple's system Eye
+Tracking.
+
+Public PROD smoke checks validate public home/build asset identity without a caregiver cookie. The
+additional unauthenticated `GET /api/session` check must return exactly 401, `application/json`,
+`Cache-Control: no-store` and only `{error: string}`; 503 fails deployment. Optional TEST Access
+service headers are still sent for its infrastructure gate, but never count as a caregiver account
+session.
+
+### Local backend testing
+
+Vite alone does not provide D1 APIs. Build then use Wrangler:
+
+```sh
+npm run build
+npx wrangler d1 migrations apply DB --env test --local
+node scripts/accounts.ts invite --env test --username caregiver --origin http://localhost:8787 --local
+npx wrangler dev --env test --local --port 8787
+```
+
+Open the printed setup link on the same origin/port. HTTP is allowed only on loopback hosts
+(`localhost`, `127.0.0.1`, `[::1]`), using the separate `reader-local` HttpOnly cookie without
+`Secure`. Remote HTTP is rejected, even when DB is bound. `--local` administration is TEST-only.
+Local state remains in ignored `.wrangler`; never use real caregiver phrases in test fixtures.
+
+Targeted backend validation:
+
+```sh
+npx vitest run tests/worker.test.ts tests/accounts.test.ts tests/accounts-cli.test.ts --coverage --coverage.include=src/accounts.ts --coverage.include=src/worker.ts
+```
+
+These tests use real local D1 migrations and SQL, independent PBKDF2 vectors and actual workerd KDF
+support, plus typed mocks for rare reset/revocation failure races. They do not prove remote
+Cloudflare provisioning, production CPU affordability, or physical iPad eye-tracking accuracy.
+Expired rows are rejected even without deletion. Operators should periodically remove expired rows
+and choose account/phrase retention and backup policies appropriate to their deployment:
+
+```sh
+npx wrangler d1 execute DB --env production --remote --command "DELETE FROM sessions WHERE expires_at <= unixepoch(); DELETE FROM account_tokens WHERE expires_at <= unixepoch(); DELETE FROM login_limits WHERE expires_at <= unixepoch();"
+```
+
+Deleting expired records is housekeeping, not session/recovery authorization or a scheduled Worker
+requirement. D1 contains caregiver-entered phrases; restrict administrator access and agree a
+retention policy before using personal content.
 
 ## 3. Deployment credentials
 
@@ -119,9 +277,10 @@ rewriting/deletion without blocking the release workflow. Details:
 
 ## 5. Optional TEST authentication
 
-**Public TEST:** skip this section and leave both Access secrets unset. PROD stays public.
-**Protected TEST:** configure an Access application covering its deployment hostname and all paths.
-Protecting preview URLs alone does not protect the TEST URL.
+**Public TEST:** skip this section and leave both Access secrets unset. PROD's home/login is public;
+its board and account APIs still require invitation-only caregiver authentication. **Protected
+TEST:** configure an Access application covering its deployment hostname and all paths. Protecting
+preview URLs alone does not protect the TEST URL.
 
 For a new protected TEST:
 

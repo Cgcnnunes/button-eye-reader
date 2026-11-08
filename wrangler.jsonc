@@ -9,26 +9,50 @@
     "binding": "ASSETS",
     "directory": "./dist",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/", "/index.html"],
+    "run_worker_first": ["/", "/index.html", "/api", "/api/*", "/app", "/app/*"],
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "button-eye-reader-local",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
+    },
+  ],
   "observability": { "enabled": false },
   "env": {
     "production": {
       "name": "button-eye-reader-prod",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "button-eye-reader-prod",
+          "database_id": "REPLACE_WITH_PRODUCTION_D1_DATABASE_ID",
+          "migrations_dir": "migrations",
+        },
+      ],
       "assets": {
         "binding": "ASSETS",
         "directory": "./dist",
         "not_found_handling": "single-page-application",
-        "run_worker_first": ["/", "/index.html"],
+        "run_worker_first": ["/", "/index.html", "/api", "/api/*", "/app", "/app/*"],
       },
     },
     "test": {
       "name": "button-eye-reader-test",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "button-eye-reader-test",
+          "database_id": "REPLACE_WITH_TEST_D1_DATABASE_ID",
+          "migrations_dir": "migrations",
+        },
+      ],
       "assets": {
         "binding": "ASSETS",
         "directory": "./dist",
         "not_found_handling": "single-page-application",
-        "run_worker_first": ["/", "/index.html"],
+        "run_worker_first": ["/", "/index.html", "/api", "/api/*", "/app", "/app/*"],
       },
     },
   },

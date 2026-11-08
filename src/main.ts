@@ -1,19 +1,17 @@
 import './style.css';
+import { type AccountSession, getSession, login, logout, saveBoard, setup } from './account-client';
 import { Speaker } from './speech';
 import {
   addPhrase,
   type Board,
   defaultBoard,
   MAX_TEXT,
-  parseBoard,
+  movePhrase,
   type Phrase,
   replaceSlot,
-  STORAGE_KEY,
-  upgradeCatalogue,
-  upgradeDefaultSlots,
 } from './store';
 
-type Screen = 'board' | 'catalogue' | 'replace' | 'add';
+type Screen = 'board' | 'catalogue' | 'replace' | 'add' | 'sort-slots' | 'sort-catalogue';
 
 const root = document.querySelector<HTMLDivElement>('#app');
 
@@ -21,32 +19,20 @@ if (!root) throw new Error('O elemento principal não foi encontrado.');
 
 const app = root;
 let board = defaultBoard();
-let initialError = '';
-let storageHealthy = true;
+let account: AccountSession | null = null;
+let saving = false;
+let orderIndex = 0;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Ocorreu um erro inesperado.';
-}
-
-try {
-  const raw = localStorage.getItem(STORAGE_KEY);
-
-  if (raw !== null) {
-    board = parseBoard(raw);
-
-    board = readSavedBoard(raw);
-  }
-} catch (error) {
-  storageHealthy = false;
-
-  initialError = `Não foi possível ler as frases guardadas. Os dados existentes não serão alterados. ${errorMessage(error)}`;
 }
 
 let screen: Screen = 'board';
 let page = 0;
 let selected: Phrase | null = null;
 
-app.innerHTML = `
+function mountBoard(): void {
+  app.innerHTML = `
   <div id="shell" class="shell">
     <header>
       <section class="guidance" aria-label="Instruções"><div><h1 id="screen-title"></h1><p id="screen-hint"></p></div></section>
@@ -64,6 +50,9 @@ app.innerHTML = `
           <button id="sound" type="button" class="helper"><strong>Testar som</strong><span>Confirmar a voz e o volume</span></button>
           <button id="add" type="button" class="helper" data-action="add"><strong>Adicionar frase</strong><span>Escrever uma nova frase no catálogo</span></button>
           <button id="eye-help" type="button" class="helper" aria-expanded="false" aria-controls="eye-help-text"><strong>Ajuda com o Rastreamento dos Olhos</strong><span>Como ativar ou pausar no iPad</span></button>
+          <button id="sort-slots" type="button" class="helper"><strong>Ordenar os quatro botões</strong><span>Escolher a posição das frases</span></button>
+          <button id="sort-catalogue" type="button" class="helper"><strong>Ordenar o catálogo</strong><span>Organizar as frases guardadas</span></button>
+          <button id="logout" type="button" class="helper"><strong>Terminar sessão</strong><span>Sair desta conta neste dispositivo</span></button>
         </div>
         <p id="eye-help-text" hidden>No iPad: Ajustes -> Acessibilidade -> Rastreamento dos Olhos. Se disponível, configure o Atalho de acessibilidade para acesso pelo botão superior. Esta aplicação não ativa nem desativa o rastreamento.</p>
       </section>
@@ -72,10 +61,15 @@ app.innerHTML = `
           <button id="caregiver-toggle" type="button" class="helper" aria-expanded="false" aria-controls="caregiver-panel">Acompanhante · Opções</button>
           <span id="caregiver-hint">Peça a quem acompanha para aceder às configurações.</span>
         </div>
-        <div class="privacy"><span>As frases ficam neste navegador.</span><span class="release-label"><small class="experimental">EXPERIMENTAL</small><span>v${__APP_VERSION__}</span></span></div>
+        <div class="privacy"><span>Frases e posições guardadas na sua conta.</span><span class="release-label"><small class="experimental">EXPERIMENTAL</small><span>v${__APP_VERSION__}</span></span></div>
       </div>
     </footer>
   </div>`;
+
+  wireControls();
+
+  render();
+}
 
 function element(id: string): HTMLElement;
 
@@ -93,15 +87,12 @@ function element(id: string, expected?: new () => HTMLElement): HTMLElement {
   return result;
 }
 
-const content = element('content');
-const notice = element('notice');
-
 function notify(message: string): void {
-  notice.textContent = message;
+  element('notice').textContent = message;
 }
 
 const speaker = new Speaker(notify, (busy) => {
-  if (!busy) element('spoken').textContent = 'Pronto para a próxima frase.';
+  if (!busy && account) element('spoken').textContent = 'Pronto para a próxima frase.';
 });
 
 function phraseFor(id: string): Phrase {
@@ -172,13 +163,15 @@ function makeButton(
   }
 
   button.addEventListener('click', () => {
-    activate(button);
+    void activate(button);
   });
 
   return button;
 }
 
 function render(): void {
+  const content = element('content');
+
   content.replaceChildren();
 
   element('shell').classList.toggle('board-screen', screen === 'board');
@@ -204,7 +197,9 @@ function render(): void {
         ? 'Escolha uma frase'
         : screen === 'replace'
           ? 'Qual botão quer mudar?'
-          : 'Adicionar uma frase';
+          : screen.startsWith('sort-')
+            ? 'Organizar frases · acompanhante'
+            : 'Adicionar uma frase';
 
   element('screen-hint').textContent =
     screen === 'board'
@@ -223,6 +218,12 @@ function render(): void {
     pageLabel.textContent = `página ${page + 1} de ${Math.ceil(board.phrases.length / 4)}`;
 
     element('screen-hint').replaceChildren('Catálogo · ', pageLabel);
+  }
+
+  if (screen === 'sort-slots' || screen === 'sort-catalogue') {
+    renderOrder();
+
+    return;
   }
 
   if (screen === 'board' || screen === 'replace') {
@@ -274,47 +275,40 @@ function render(): void {
   content.append(grid, controls);
 }
 
-function persist(next: Board): boolean {
-  if (!storageHealthy) {
-    notify(
-      'As frases guardadas não puderam ser lidas. Não as vamos substituir. Peça ajuda para recuperar os dados do navegador.',
-    );
+async function persist(next: Board): Promise<boolean> {
+  if (!account) throw new Error('Inicie sessão para guardar as frases.');
 
-    return false;
-  }
+  if (saving) return false;
+
+  saving = true;
+
+  element('shell').inert = true;
 
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    const saved = await saveBoard(next, account.revision, account.csrf);
 
-    board = next;
+    board = saved.board;
+
+    account = { ...account, ...saved };
+
+    notify('Alterações guardadas na sua conta.');
 
     return true;
   } catch (error) {
-    notify(`Não foi possível guardar. Nada foi alterado. ${errorMessage(error)}`);
+    notify(
+      `Não foi possível guardar. Nada foi alterado nesta página. ${errorMessage(error)} Recarregue a página para carregar a versão atual ou voltar a entrar.`,
+    );
 
     return false;
+  } finally {
+    saving = false;
+
+    element('shell').inert = false;
   }
 }
 
-function readSavedBoard(raw: string): Board {
-  const saved = parseBoard(raw);
-  const upgraded = upgradeCatalogue(upgradeDefaultSlots(saved));
-
-  if (upgraded !== saved) {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(upgraded));
-    } catch (error) {
-      throw new Error(`Não foi possível guardar a atualização dos botões. ${errorMessage(error)}`, {
-        cause: error,
-      });
-    }
-  }
-
-  return upgraded;
-}
-
-function activate(button: HTMLButtonElement): void {
-  if (button.disabled) return;
+async function activate(button: HTMLButtonElement): Promise<void> {
+  if (button.disabled || saving) return;
 
   const action = button.dataset.action ?? '';
 
@@ -336,7 +330,7 @@ function activate(button: HTMLButtonElement): void {
     } else if (action.startsWith('replace:')) {
       if (!selected) throw new Error('Escolha primeiro uma frase.');
 
-      if (!persist(replaceSlot(board, Number(action.slice(8)), selected.id))) return;
+      if (!(await persist(replaceSlot(board, Number(action.slice(8)), selected.id)))) return;
 
       element('spoken').textContent = `Botão atualizado: «${selected.text}».`;
 
@@ -366,20 +360,30 @@ function renderForm(): void {
   form.innerHTML = `
     <label for="new-phrase">Palavra ou frase em português</label>
     <textarea id="new-phrase" name="phrase" maxlength="${MAX_TEXT}" rows="3" required placeholder="Por exemplo: Quero ouvir música"></textarea>
-    <p>Até ${MAX_TEXT} caracteres. Fica guardada no catálogo deste iPad.</p>
+    <p>Até ${MAX_TEXT} caracteres. Fica guardada no catálogo da sua conta.</p>
+    <label class="position-label" for="phrase-position">Posição no catálogo</label>
+    <select id="phrase-position"></select>
     <p>Área para quem acompanha. O Controlo ocular do iPad é gerido nas definições do dispositivo, não nesta aplicação.</p>
     <div class="controls"><button type="submit" class="control-button">Guardar no catálogo</button><button type="button" id="form-back" class="control-button">Cancelar</button></div>`;
 
   form.addEventListener('submit', (event) => {
     event.preventDefault();
 
+    void submitPhrase();
+  });
+
+  async function submitPhrase(): Promise<void> {
     try {
       const text = element('new-phrase', HTMLTextAreaElement).value;
-      const next = addPhrase(board, text);
+      const added = addPhrase(board, text);
+      const position = Number(element('phrase-position', HTMLSelectElement).value);
+      const next = movePhrase(added, added.phrases.length - 1, position, false);
 
-      if (!persist(next)) return;
+      if (!(await persist(next))) return;
 
       screen = 'catalogue';
+
+      page = Math.floor(position / 4);
 
       notify('Frase guardada. Escolha-a no catálogo para a colocar num botão.');
 
@@ -387,9 +391,26 @@ function renderForm(): void {
     } catch (error) {
       notify(errorMessage(error));
     }
-  });
+  }
 
-  content.append(form);
+  element('content').append(form);
+
+  const positions = element('phrase-position', HTMLSelectElement);
+
+  for (let index = 0; index <= board.phrases.length; index++) {
+    const option = document.createElement('option');
+
+    option.value = String(index);
+
+    option.textContent =
+      index === board.phrases.length
+        ? 'No fim do catálogo'
+        : `Antes de: ${board.phrases[index].text}`;
+
+    positions.append(option);
+  }
+
+  positions.value = String(board.phrases.length);
 
   element('form-back').addEventListener('click', () => {
     screen = 'board';
@@ -399,12 +420,6 @@ function renderForm(): void {
 
   element('new-phrase', HTMLTextAreaElement).focus();
 }
-
-element('sound').addEventListener('click', () => {
-  speaker.speak('Olá. Esta é a minha voz.');
-});
-
-const addButton = element('add', HTMLButtonElement);
 
 function setCaregiverPanel(open: boolean): void {
   element('caregiver-panel').hidden = !open;
@@ -422,38 +437,60 @@ function setCaregiverPanel(open: boolean): void {
   }
 }
 
-element('caregiver-toggle').addEventListener('click', () => {
-  const open = element('caregiver-panel').hidden === true;
+function wireControls(): void {
+  element('sound').addEventListener('click', () => {
+    speaker.speak('Olá. Esta é a minha voz.');
+  });
 
-  setCaregiverPanel(open);
+  const addButton = element('add', HTMLButtonElement);
 
-  if (open) element('caregiver-close').focus();
-});
+  element('caregiver-toggle').addEventListener('click', () => {
+    const open = element('caregiver-panel').hidden === true;
 
-element('caregiver-close').addEventListener('click', () => {
-  setCaregiverPanel(false);
+    setCaregiverPanel(open);
 
-  element('caregiver-toggle').focus();
-});
+    if (open) element('caregiver-close').focus();
+  });
 
-element('eye-help').addEventListener('click', () => {
-  const open = element('eye-help-text').hidden === true;
+  element('caregiver-close').addEventListener('click', () => {
+    setCaregiverPanel(false);
 
-  element('eye-help-text').hidden = !open;
+    element('caregiver-toggle').focus();
+  });
 
-  element('eye-help').setAttribute('aria-expanded', String(open));
-});
+  element('eye-help').addEventListener('click', () => {
+    const open = element('eye-help-text').hidden === true;
+
+    element('eye-help-text').hidden = !open;
+
+    element('eye-help').setAttribute('aria-expanded', String(open));
+  });
+
+  addButton.addEventListener('click', () => {
+    void activate(addButton);
+  });
+
+  for (const mode of ['sort-slots', 'sort-catalogue'] as const) {
+    element(mode).addEventListener('click', () => {
+      screen = mode;
+
+      orderIndex = 0;
+
+      render();
+    });
+  }
+
+  element('logout').addEventListener('click', () => {
+    void signOut();
+  });
+}
 
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && !element('caregiver-panel').hidden) {
+  if (event.key === 'Escape' && account && !element('caregiver-panel').hidden) {
     setCaregiverPanel(false);
 
     element('caregiver-toggle').focus();
   }
-});
-
-addButton.addEventListener('click', () => {
-  activate(addButton);
 });
 
 document.addEventListener('visibilitychange', () => {
@@ -464,32 +501,176 @@ window.addEventListener('pagehide', () => {
   speaker.stop();
 });
 
-window.addEventListener('storage', (event) => {
-  if (event.key !== STORAGE_KEY && event.key !== null) return;
+function renderOrder(): void {
+  const slotsOnly = screen === 'sort-slots';
+  const phrases = slotsOnly ? board.slots.map(phraseFor) : board.phrases;
+  const panel = document.createElement('section');
 
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+  panel.className = 'order-panel';
 
-    board = raw === null ? defaultBoard() : readSavedBoard(raw);
+  panel.innerHTML = `<label for="order-phrase">${slotsOnly ? 'Posição dos quatro botões' : 'Ordem do catálogo'} · acompanhante</label><select id="order-phrase"></select><p id="order-preview"></p><p>Escolha uma frase e mova-a. Cada alteração é guardada na conta.</p><div class="controls three-controls"><button id="order-up" type="button" class="control-button">Mover antes</button><button id="order-down" type="button" class="control-button">Mover depois</button><button id="order-back" type="button" class="control-button">Voltar às frases</button></div>`;
 
-    storageHealthy = true;
+  element('content').append(panel);
 
+  const chooser = element('order-phrase', HTMLSelectElement);
+
+  phrases.forEach((phrase, index) => {
+    const option = document.createElement('option');
+
+    option.value = String(index);
+
+    option.textContent = `${index + 1}. ${phrase.text}`;
+
+    chooser.append(option);
+  });
+
+  chooser.value = String(orderIndex);
+
+  const update = (): void => {
+    element('order-preview').textContent = phrases[orderIndex].text;
+
+    element('order-up', HTMLButtonElement).disabled = orderIndex === 0;
+
+    element('order-down', HTMLButtonElement).disabled = orderIndex === phrases.length - 1;
+  };
+
+  chooser.addEventListener('change', () => {
+    orderIndex = Number(chooser.value);
+
+    update();
+  });
+
+  update();
+
+  const move = async (offset: number): Promise<void> => {
+    try {
+      if (await persist(movePhrase(board, orderIndex, orderIndex + offset, slotsOnly))) {
+        orderIndex += offset;
+
+        render();
+      }
+    } catch (error) {
+      notify(errorMessage(error));
+    }
+  };
+
+  element('order-up').addEventListener('click', () => {
+    void move(-1);
+  });
+
+  element('order-down').addEventListener('click', () => {
+    void move(1);
+  });
+
+  element('order-back').addEventListener('click', () => {
     screen = 'board';
 
-    selected = null;
-
-    page = 0;
-
     render();
+  });
+}
 
-    notify('As frases foram alteradas noutro separador.');
-  } catch (error) {
-    storageHealthy = false;
+function showHome(message = ''): void {
+  app.innerHTML = `<div class="login-shell"><img src="/logo.svg" alt="O meu olhar" width="120" height="84"><h1>O meu olhar</h1><p>Comunicar, uma frase de cada vez.</p><form id="login-form"><label for="username">Nome de utilizador</label><input id="username" autocomplete="username" required maxlength="64"><label for="password">Palavra-passe</label><input id="password" type="password" autocomplete="current-password" required minlength="12" maxlength="128"><button type="submit" class="control-button">Entrar</button></form><p id="notice" role="alert"></p><p>Conta criada por convite. Para recuperar o acesso, contacte quem administra a aplicação.</p><small>EXPERIMENTAL · v${__APP_VERSION__}</small></div>`;
 
-    notify(`As frases de outro separador não puderam ser lidas. ${errorMessage(error)}`);
+  const fragment = new URLSearchParams(location.hash.slice(1));
+  const token = fragment.get('setup');
+
+  if (token) {
+    history.replaceState(null, '', '/');
+
+    element('username', HTMLInputElement).required = false;
+
+    element('username').hidden = true;
+
+    app.querySelector('label[for="username"]')?.remove();
+
+    element('password', HTMLInputElement).autocomplete = 'new-password';
+
+    const submit = app.querySelector('button');
+
+    if (submit) submit.textContent = 'Definir palavra-passe';
   }
-});
 
-render();
+  notify(message);
 
-if (initialError) notify(initialError);
+  element('login-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+
+    void signIn();
+  });
+
+  async function signIn(): Promise<void> {
+    const form = element('login-form');
+
+    form.inert = true;
+
+    try {
+      const password = element('password', HTMLInputElement).value;
+
+      account = token
+        ? await setup(token, password)
+        : await login(element('username', HTMLInputElement).value, password);
+
+      board = account.board;
+
+      screen = 'board';
+
+      page = 0;
+
+      selected = null;
+
+      history.replaceState(null, '', '/app');
+
+      mountBoard();
+    } catch (error) {
+      element('password', HTMLInputElement).value = '';
+
+      notify(errorMessage(error));
+
+      form.inert = false;
+    }
+  }
+}
+
+async function signOut(): Promise<void> {
+  if (!account || saving) return;
+
+  element('shell').inert = true;
+
+  try {
+    await logout(account.csrf);
+
+    speaker.stop();
+
+    account = null;
+
+    board = defaultBoard();
+
+    history.replaceState(null, '', '/');
+
+    showHome();
+  } catch (error) {
+    element('shell').inert = false;
+
+    notify(`Não foi possível terminar a sessão. ${errorMessage(error)}`);
+  }
+}
+
+try {
+  app.innerHTML = '<p role="status">A carregar a sessão…</p>';
+
+  if (location.hash.startsWith('#setup=')) showHome();
+  else {
+    account = await getSession();
+
+    if (account) {
+      board = account.board;
+
+      history.replaceState(null, '', '/app');
+
+      mountBoard();
+    } else showHome();
+  }
+} catch (error) {
+  showHome(`Não foi possível carregar a sessão. ${errorMessage(error)}`);
+}

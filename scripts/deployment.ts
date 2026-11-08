@@ -210,7 +210,7 @@ export async function smoke(environment: string): Promise<void> {
     };
   }
 
-  async function request(path: string, timeout: number): Promise<Response> {
+  async function request(path: string, timeout: number, anonymousApi = false): Promise<Response> {
     const response = await fetch(`${url}${path}`, {
       cache: 'no-store',
       headers,
@@ -220,7 +220,7 @@ export async function smoke(environment: string): Promise<void> {
 
     if (
       (response.status >= 300 && response.status < 400) ||
-      response.status === 401 ||
+      (response.status === 401 && !anonymousApi) ||
       response.status === 403
     ) {
       throw new Error(
@@ -271,6 +271,25 @@ export async function smoke(environment: string): Promise<void> {
     ) {
       throw new Error('Deployment security headers are missing or incorrect.');
     }
+  }
+
+  const session = await request('/api/session', 30000, true);
+
+  if (
+    session.status !== 401 ||
+    !session.headers.get('content-type')?.includes('application/json') ||
+    !session.headers.get('cache-control')?.includes('no-store')
+  ) {
+    throw new Error('Deployment account API must reject anonymous sessions with uncached JSON.');
+  }
+
+  const anonymous = object(await session.json());
+
+  if (
+    typeof anonymous.error !== 'string' ||
+    Object.keys(anonymous).some((key) => key !== 'error')
+  ) {
+    throw new Error('Deployment account API disclosed unexpected anonymous session data.');
   }
 
   const summary = process.env.GITHUB_STEP_SUMMARY;

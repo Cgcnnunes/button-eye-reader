@@ -221,3 +221,26 @@ export function replaceSlot(board: Board, slot: number, phraseId: string): Board
 
   return { ...board, slots };
 }
+
+export function movePhrase(board: Board, from: number, to: number, slotsOnly: boolean): Board {
+  const length = slotsOnly ? board.slots.length : board.phrases.length;
+
+  if (![from, to].every((index) => Number.isInteger(index) && index >= 0 && index < length))
+    throw new Error('A posição escolhida não é válida.');
+
+  if (slotsOnly) {
+    const slots: Board['slots'] = [...board.slots];
+    const [item] = slots.splice(from, 1);
+
+    slots.splice(to, 0, item);
+
+    return { ...board, slots };
+  }
+
+  const phrases = [...board.phrases];
+  const [item] = phrases.splice(from, 1);
+
+  phrases.splice(to, 0, item);
+
+  return { ...board, phrases };
+}

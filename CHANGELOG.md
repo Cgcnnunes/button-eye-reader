@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0
+
+- Add invitation-only custom accounts and administrator-issued one-use password setup/recovery, with
+  remembered sessions and explicit logout.
+- Store each account's phrases, catalogue order and four speaking positions in separate TEST/PROD
+  Cloudflare D1 databases; new accounts use defaults without importing browser-local phrases.
+- Restore the eye/speech logo on the logged-out home only. Keep the four-target board unbranded.
+- Add caregiver-only ordering controls and insertion positions for new phrases; acknowledge saves
+  after persistence and reject conflicting revisions instead of overwriting another session.
+- Document database provisioning, migrations, administrator setup/recovery and deployment
+  prerequisites; physical iPad and live Cloudflare acceptance remain required.
+
 ## 0.4.1
 
 - Prioritize the catalogue's first twelve phrases as requested, add thirst and retire four
