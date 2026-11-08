@@ -1,108 +1,89 @@
-# Architecture and sources of truth
+# Architecture
 
-## Purpose and limits
+Experimental pt-PT communication board for iPad Safari: **four speaking targets**, touch or gaze,
+and caregiver-only text entry. It is not a medical device or an emergency communication system.
 
-Button Eye Reader is an experimental pt-PT communication board for an iPad A16. Four large phrases
-can be spoken by touch or calibrated gaze. Catalogue navigation and slot replacement must remain
-usable without typing; only adding a new phrase is caregiver-only. This is not a medical device or
-an emergency communication system.
+## Runtime
 
-The app is static TypeScript and CSS, bundled by Vite. There is no UI framework, application
-database or external speech API. Node.js is build/tooling only. A small Cloudflare Worker serves
-Workers Static Assets over HTTPS. The shipped HTML enables eye diagnostics in all environments,
-including PROD temporarily; local Vite development also enables them independently. GitHub Actions
-deploys merges to a separate TEST Worker; PROD is a manual tag-only promotion of the tested
-artifact. Do not connect Workers Builds; Cloudflare Pipelines (data ingestion) is not used.
+Static TypeScript/CSS built by Vite, served by Cloudflare Workers Static Assets. No UI framework,
+application database, external speech API, camera upload or calibration-report storage. Node.js is
+build/deployment tooling only.
 
-## Runtime flow
+```mermaid
+flowchart LR
+  Camera["Local front camera"] --> Landmarks["MediaPipe eye and face landmarks"]
+  Landmarks --> Calibration["Nine calibration points"]
+  Calibration --> Mapping["Normalized ridge regression"]
+  Mapping --> Validation["Four independent verification points"]
+  Validation -->|pass| Dwell["Raw and smoothed gaze agree"]
+  Dwell --> Speech["Two-second dwell and local pt-PT speech"]
+  Validation -->|fail| Touch["Gaze stays off; touch remains available"]
+```
 
-1. [main.ts](../src/main.ts) loads validated browser storage or the initial board and renders the
-   board, catalogue, replacement screen or caregiver form.
-2. [store.ts](../src/store.ts) owns phrase validation and immutable slot updates. A successful
-   storage write is required before updating the in-memory board. Corrupt storage is reported and
-   preserved, not replaced.
-3. [speech.ts](../src/speech.ts) selects an exact pt-PT system voice when available, prevents queued
-   repeats and exposes failures. A touch gesture may be necessary on Safari. Missing voices are
-   reported; do not promise the correct accent.
-4. [gaze.ts](../src/gaze.ts) owns user-facing-camera capture, the local mirrored preview, face
-   bounds and the MediaPipe lifecycle. A caregiver may choose an available camera for PC testing;
-   the default prefers the device's user-facing camera. Model/WASM are loaded from the same origin.
-   Video never leaves the browser. No face, multiple faces, closed eyes, frozen frames or errors
-   cannot count as valid gaze samples. Face position/size guidance is a framing aid, not a physical
-   distance or head-pose measurement.
-5. [gaze-math.ts](../src/gaze-math.ts) extracts iris/head features and fits a normalized
-   ridge-regression mapping. Nine calibration points are followed by four independent validation
-   points. Every validation point requires at least 12 samples, with 90% within 12% on **both**
-   screen axes.
-6. [dwell.ts](../src/dwell.ts) requires 2,000 ms on the same inset target. Selection locks the
-   selected rectangle until 400 ms of valid gaze outside it. Missing tracking does not unlock
-   repeats; gaps above 350 ms restart progress.
+| Module             | Responsibility                                                           |
+| ------------------ | ------------------------------------------------------------------------ |
+| `src/main.ts`      | Board, catalogue, replacement, caregiver form and gaze lifecycle         |
+| `src/store.ts`     | Phrase validation, immutable updates and browser storage                 |
+| `src/speech.ts`    | Prefer exact pt-PT system voice, prevent queued repeats, report failures |
+| `src/gaze.ts`      | Camera, mirrored preview, landmarks, framing and MediaPipe lifecycle     |
+| `src/gaze-math.ts` | Eye/head features, mapping and per-point verification                    |
+| `src/dwell.ts`     | Timed selection, target inset and repeat lock                            |
+| `src/worker.ts`    | Serve static assets unchanged                                            |
 
-Raw and smoothed gaze must both agree with a target. Calibration is discarded on viewport changes,
-scrolling, backgrounding, writing or stopping the camera. No calibration is persisted. These
-safeguards reduce errors, not eliminate them.
+## Safety and privacy invariants
+
+- Four speaking targets; catalogue navigation and replacement need no typing.
+- Adding text is caregiver-only and stops gaze.
+- Persist phrases successfully before changing the in-memory board. Report/preserve corrupt storage.
+- Model/WASM load from the same origin; camera images stay in the browser.
+- Reject samples with no face, multiple faces, closed eyes, frozen frames or errors.
+- Each verification target needs at least **12 samples**, with **90% within 12% on both screen
+  axes**.
+- Raw and smoothed gaze must agree with the same inset target for **2,000 ms**.
+- Repeat lock needs **400 ms of valid gaze outside** the selected rectangle to release. Missing
+  tracking does not unlock it; gaps over **350 ms** restart dwell progress.
+- Discard calibration on viewport changes, scrolling, backgrounding, writing or stopping the camera.
+  Calibration is not saved.
+- Face size/position is framing guidance, not physical distance or head-pose measurement.
+- Eye/iris markers and validation diagnostics are enabled locally and in TEST, and temporarily in
+  PROD without headers. Landmarks do not prove accurate gaze.
+
+Safari may require a touch gesture for speech. Missing pt-PT voices and speech failures are
+reported; neither accent nor continuing audio authorization is guaranteed.
+
+## Deployment boundaries
+
+- GitHub Actions owns deployment; no Workers Builds or Cloudflare Pipelines.
+- TEST and PROD are separate Workers/origins, with independent browser phrase storage.
+- Optional TEST Access: browser **Allow** policy and separate automation **Service Auth** policy.
+  Access credentials appear only in TEST smoke checks, never in browser assets. PROD stays public.
+- PROD deploys the exact tested artifact, not a rebuilt site. Smoke checks prove asset identity, not
+  physical-device acceptance. Deployment and release updates are not an atomic transaction.
+- Setup: [DEPLOYMENT.md](DEPLOYMENT.md). Version/provenance rules: [RELEASES.md](RELEASES.md).
 
 ## Sources of truth
 
-| Concern                                     | Authority                                                                     |
-| ------------------------------------------- | ----------------------------------------------------------------------------- |
-| Phrase text/default ordering/storage schema | `src/store.ts`                                                                |
-| Gaze/dwell acceptance thresholds            | `src/gaze-math.ts`, `src/dwell.ts`, `src/main.ts`; boundary tests             |
-| App and repository version                  | `package.json`; lockfile root mirrors it                                      |
-| Displayed app version                       | Vite injects `package.json` version                                           |
-| Released version                            | Immutable annotated `vX.Y.Z` tag after successful TEST; prerelease until PROD |
-| Branch high-water mark                      | `.reader-sequence.json`, advanced by `branch:new`                             |
-| Commit/PR/release rules                     | `scripts/policy.ts`; hooks and CI share it                                    |
-| Formatting and lint                         | `.prettierrc.json`, `eslint.config.mjs`                                       |
-| Build/deploy identity                       | `wrangler.jsonc`; dashboard Worker name must match                            |
-| Required contributor process                | [CONTRIBUTING.md](CONTRIBUTING.md)                                            |
+| Concern                              | Authority                                                             |
+| ------------------------------------ | --------------------------------------------------------------------- |
+| Phrases, ordering and storage schema | `src/store.ts`                                                        |
+| Gaze/dwell thresholds                | `src/gaze-math.ts`, `src/dwell.ts`, `src/main.ts` and boundary tests  |
+| App version                          | `package.json`, mirrored by the lockfile; injected by Vite            |
+| Released version                     | Immutable annotated `vX.Y.Z` tag                                      |
+| Branch allocation                    | `.reader-sequence.json`, advanced by `branch:new`                     |
+| Commit/PR/release policy             | `scripts/policy.ts`, hooks and CI                                     |
+| Worker identity/assets               | `wrangler.jsonc`; deployment checks in `scripts/deployment-policy.ts` |
+| Style                                | `.prettierrc.json`, `eslint.config.mjs`                               |
+| Contributor rules                    | [CONTRIBUTING.md](CONTRIBUTING.md)                                    |
 
-GitHub workflows own build/deploy commands and release promotion; GitHub Environments own secrets,
-URLs, ref restrictions and any configured approval rules. Every push to `main` starts TEST; only
-commits passing verification and merged-PR release checks deploy. Release provenance links each
-eligible squash commit to its merged PR through GitHub. PROD can only be dispatched from the exact
-tested release tag. Wrangler defines the two Worker names and static assets. Create both Workers
-without a GitHub Workers Builds connection. Follow [DEPLOYMENT.md](DEPLOYMENT.md) for fresh setup or
-changing deployment settings. Reload the dashboard to verify persistence and check the new build's
-branch/commit before declaring deployment successful. `release.json` identifies the deployed
-SHA/tag. PR and TEST independently run the shared `npm run verify` command; PR validation runs only
-on PR events. TEST does not depend on a separate validation run. PROD checks the exact successful
-TEST workflow attempt (including verification) and immutable artifact ZIP digest, without
-recompiling. TEST/PROD use different origins, so phrase storage is independent. TEST may optionally
-be protected by Cloudflare Access. When configured, the TEST smoke-test step uses a service token
-from GitHub environment secrets; otherwise it makes unauthenticated requests. Smoke tests do not
-follow redirects; PROD remains public and never sends Access credentials. Secrets are not exposed to
-browser code or build artifacts. Smoke tests verify exact asset bytes and headers, not
-physical-device acceptance. Failure after a Cloudflare deployment can leave that version live even
-if the GitHub release update fails; there is no cross-provider transaction.
+Storage schema `version: 1` is not the app version. Do not bump it for an ordinary release.
 
-The storage schema's `version: 1` is **not** the application semantic version. Do not bump the
-storage schema just because an app release changes.
+## Implementation constraints
 
-## Structure and dependency choices
-
-- `src/`: browser code and CSS; no network uploads or secret credentials.
-- `scripts/`: typed Node scripts for assets, policy and releases.
-- `tests/`: Vitest units, jsdom UI tests and repository policy tests.
-- `public/`: static headers/notices and ignored generated vision assets.
-- `.github/`: read-only PR validation, `deploy-to-test.yml`, tag-dispatched `deploy-to-prod.yml`, PR
-  template and concise always-on Copilot instructions.
-- `docs/`: architecture, contribution rules, commands/manual tests and releases.
-
-TypeScript is pinned to the supported 6.0 series because typescript-eslint currently declares
-support below 6.1. Do not independently upgrade to TypeScript 7. Node 22.22.2+ runs the erasable
-TypeScript tooling scripts directly. Do not add parameter properties, runtime enums or decorators to
-those scripts.
-
-The minimatch override fixes the tooling-only glob-amplification advisory in the linters' transitive
-10.x dependency. Version 11 retains the imported API and supports the repository's Node baseline;
-lint and test validation cover its integration. Remove the override when upstream tooling adopts a
-patched version.
-
-Never alphabetize phrase arrays, calibration point arrays or workflow steps: their order controls
-behavior. Alphabetize static object/type keys, import specifiers/declarations and named exports
-through ESLint. Do not reorder side-effect imports or spread-dependent objects in ways that alter
-behavior.
-
-Extend options with pages of a few large targets, not a crowded main screen. Preserve pt-PT copy,
-local processing and the caregiver-only keyboard boundary.
+- Preserve phrase, calibration and workflow array ordering; alphabetize static keys/imports via
+  ESLint.
+- Scripts use Node's erasable TypeScript: no runtime enums, parameter properties or decorators.
+- TypeScript stays in the supported 6.0 series while typescript-eslint requires it; do not upgrade
+  independently to TypeScript 7.
+- The minimatch override fixes a tooling glob-amplification advisory; remove it when upstream uses a
+  patched version. Lint/tests cover compatibility.
+- New options should use pages of a few large targets, not crowd the board.
