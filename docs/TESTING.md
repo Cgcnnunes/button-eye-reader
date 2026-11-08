@@ -121,6 +121,22 @@ automated or initial calibration checks is not clinical validation or proof of o
 
 ## Testing together
 
+### Opt-in numerical reports
+
+- Enable the next calibration using the caregiver diagnostic panel; default use must collect
+  nothing.
+- A completed/failed/cancelled attempt produces a numerical preview and never uploads automatically.
+- Opening review stops gaze. No diagnostic control is a gaze target.
+- Confirm the ordinary 90%/12% verification remains unchanged with collection enabled.
+- Report upload needs configured private storage and Access; see
+  [report setup](DEPLOYMENT.md#private-calibration-reports).
+- Sign in, review again and explicitly confirm upload. Test failure/offline handling, download,
+  pagination and explicit deletion; an upload error must not claim success.
+- Verify unsigned, expired, wrong-audience/issuer and invalid-signature requests are denied.
+  Cross-origin writes, unknown fields/images and oversized reports must be rejected.
+- Check seven-day API expiry and scheduled deletion with synthetic numerical reports only. Do not
+  collect face images for tests. Temporary transfer data cannot be uploaded after 15 minutes.
+
 The assistant cannot remotely control iPad Safari or inspect its camera. A shared desktop browser
 allows UI/console interaction, not access to the iPad or its eye movements. No camera stream is sent
 to the assistant. Safari remote Web Inspector normally needs a Mac and a trusted iPad connection.

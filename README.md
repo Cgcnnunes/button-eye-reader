@@ -20,7 +20,9 @@ accurate gaze. Use supervised testing and another communication method if select
 | Privacy           | Camera processing and model/WASM loading stay local/same-origin; no image/video upload |
 
 - Eye/iris markers and failure diagnostics are enabled locally and in TEST, and temporarily in PROD
-  without headers. No remote calibration-report collection/storage is implemented.
+  without headers. Optional numerical calibration reports support private TEST/PROD storage with
+  explicit session opt-in, review and authenticated upload; see
+  [setup](docs/DEPLOYMENT.md#private-calibration-reports).
 - Face framing is based on apparent image size, not centimetres or a measured head pose.
 - Each verification target needs at least 12 samples and 90% within 12% on both screen axes. Passing
   does not guarantee ongoing accuracy.

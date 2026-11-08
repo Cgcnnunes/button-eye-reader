@@ -186,6 +186,70 @@ Official guides:
 [Service tokens](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/),
 [Policies](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/).
 
+## Private calibration reports
+
+Report collection is optional and disabled by default. The feature exists in TEST and PROD, but
+cloud uploads need this setup. **Create both buckets before deploying this release**; bindings in
+`wrangler.jsonc` reference these exact names.
+
+1. Sign in using `npx wrangler login` and enable R2 for the selected account if needed. R2 has a
+   free allowance, not unlimited free use; check account requirements/pricing before enabling it.
+2. Create separate private buckets and lifecycle rules:
+
+   ```sh
+   npx wrangler r2 bucket create button-eye-reader-reports-test
+   npx wrangler r2 bucket create button-eye-reader-reports-prod
+   npx wrangler r2 bucket lifecycle add button-eye-reader-reports-test expire-reports reports/ --expire-days 7
+   npx wrangler r2 bucket lifecycle add button-eye-reader-reports-prod expire-reports reports/ --expire-days 7
+   ```
+
+   Do not enable public `r2.dev` access or attach public bucket domains. The Worker uses the
+   `REPORTS` binding; no R2 credentials belong in browser code.
+
+3. In **Zero Trust > Access controls > Applications**, create a dedicated hostname/path application
+   for each environment's report area. Cover `/diagnostics` and `/diagnostics/*`; reuse the existing
+   identity provider, and allow only approved caregivers/reviewers. Do not protect the entire PROD
+   Worker. Existing TEST access remains in place; use the report application's audience, not the
+   broader TEST application audience. Check overlapping policies so a TEST login alone cannot bypass
+   the report policy.
+4. Find each report application's **Application Audience (AUD)** and your Access team hostname
+   (`your-team.cloudflareaccess.com`). Store them as Worker secrets, separately for each
+   environment:
+
+   ```sh
+   npx wrangler secret put REPORT_ACCESS_TEAM --env test
+   npx wrangler secret put REPORT_ACCESS_AUD --env test
+   npx wrangler secret put REPORT_ACCESS_TEAM --env production
+   npx wrangler secret put REPORT_ACCESS_AUD --env production
+   ```
+
+   Enter the hostname without `https://`; enter the matching application's AUD when prompted. These
+   settings are not service-token credentials. If a Worker does not exist yet, create it through the
+   approved deployment process before adding its secrets. Uploads fail closed until configured.
+
+5. Verify that approved browser sign-in can open `/diagnostics`, while unauthenticated requests
+   cannot access its API. Direct `/diagnostics.html` also requires server-verified report access;
+   use `/diagnostics` as the browser entry point. Check the hourly cleanup trigger in each Worker.
+6. Use the caregiver diagnostic control: opt into the next calibration, close the panel, calibrate,
+   then reopen it to review. Open the private area, authenticate, review again and confirm upload.
+   Reports can then be downloaded or deleted. Failed, cancelled and successful attempts are useful.
+
+| Report data                                                          | Purpose                                                                             |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| App version, camera/screen dimensions and duration                   | Compare setups and code versions                                                    |
+| Frame callbacks, usable eyes, no/multiple faces and alignment counts | Identify tracking interruptions; callback rate is not camera frame rate             |
+| Per-target eye means and standard deviations                         | Check signal separation/noise without saving individual samples or head coordinates |
+| Signed mean errors, RMSE and within-limit counts                     | Identify direction, magnitude and consistency of verification failures              |
+
+Numerical eye measurements can still be sensitive; these reports are not claimed to be anonymous.
+Access may keep its own authentication logs. The app stores no face images, recordings, phrase text
+or user identity. It does not upload automatically or alter the algorithm/verification thresholds.
+
+Reports stop being accessible after seven days. Hourly cleanup and R2 lifecycle expiry delete them
+afterwards; storage deletion is asynchronous. Exported copies are not automatically deleted. The
+assistant has no standing account access: authorize retrieval or share a downloaded report
+explicitly, without sharing login credentials.
+
 ## 6. Deploy and verify
 
 1. Squash-merge a reviewed PR with green checks. The main push starts **Deploy to TEST**.

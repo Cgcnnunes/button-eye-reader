@@ -12,12 +12,15 @@
     "binding": "ASSETS",
     "directory": "./dist",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/", "/index.html"],
+    "run_worker_first": ["/", "/index.html", "/diagnostics", "/diagnostics/*", "/diagnostics.html"],
   },
   "observability": { "enabled": false },
+  "triggers": { "crons": ["17 * * * *"] },
   "env": {
     "production": {
       "name": "button-eye-reader-prod",
+      "triggers": { "crons": ["17 * * * *"] },
+      "r2_buckets": [{ "binding": "REPORTS", "bucket_name": "button-eye-reader-reports-prod" }],
       "vars": {
         "DEPLOYMENT_ENVIRONMENT": "production",
       },
@@ -25,11 +28,19 @@
         "binding": "ASSETS",
         "directory": "./dist",
         "not_found_handling": "single-page-application",
-        "run_worker_first": ["/", "/index.html"],
+        "run_worker_first": [
+          "/",
+          "/index.html",
+          "/diagnostics",
+          "/diagnostics/*",
+          "/diagnostics.html",
+        ],
       },
     },
     "test": {
       "name": "button-eye-reader-test",
+      "triggers": { "crons": ["17 * * * *"] },
+      "r2_buckets": [{ "binding": "REPORTS", "bucket_name": "button-eye-reader-reports-test" }],
       "vars": {
         "DEPLOYMENT_ENVIRONMENT": "test",
       },
@@ -37,7 +48,13 @@
         "binding": "ASSETS",
         "directory": "./dist",
         "not_found_handling": "single-page-application",
-        "run_worker_first": ["/", "/index.html"],
+        "run_worker_first": [
+          "/",
+          "/index.html",
+          "/diagnostics",
+          "/diagnostics/*",
+          "/diagnostics.html",
+        ],
       },
     },
   },

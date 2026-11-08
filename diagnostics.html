@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt-PT">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Relatórios de calibração</title>
+  </head>
+  <body>
+    <main>
+      <h1>Relatórios de calibração · acompanhante</h1>
+      <p>Dados numéricos apenas. Sem imagens, vídeo, frases ou identificação da pessoa.</p>
+      <p>Os relatórios ficam privados e deixam de estar disponíveis ao fim de sete dias.</p>
+      <p id="report-status" role="status"></p>
+      <h2>Rever antes de enviar</h2>
+      <pre id="pending-report"></pre>
+      <button id="send-report" disabled>Confirmar e enviar</button>
+      <button id="discard-report">Descartar relatório pendente</button>
+      <h2>Relatórios guardados</h2>
+      <button id="refresh-reports">Atualizar lista</button>
+      <ul id="stored-reports"></ul>
+      <button id="next-reports" hidden>Página seguinte</button>
+      <p><a href="/">Voltar à prancha</a></p>
+    </main>
+    <script type="module" src="/src/diagnostics-page.ts"></script>
+  </body>
+</html>

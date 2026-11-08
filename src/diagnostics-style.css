@@ -1,0 +1,31 @@
+body {
+  margin: 0;
+  padding: 24px;
+  background: #102b46;
+  color: #fff;
+  font:
+    18px system-ui,
+    sans-serif;
+}
+main {
+  max-width: 900px;
+  margin: auto;
+}
+button {
+  padding: 12px;
+  margin: 8px;
+  font: inherit;
+}
+a {
+  color: #f6bd5d;
+}
+pre {
+  overflow: auto;
+  max-height: 50vh;
+  padding: 16px;
+  background: #071a2b;
+}
+li {
+  margin: 16px 0;
+  overflow-wrap: anywhere;
+}

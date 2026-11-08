@@ -828,3 +828,28 @@ textarea {
     scroll-behavior: auto !important;
   }
 }
+.diagnostic-panel {
+  position: fixed;
+  z-index: 50;
+  inset: 5%;
+  padding: 24px;
+  overflow: auto;
+  background: #102b46;
+  color: #fff;
+  border: 2px solid #f6bd5d;
+}
+.diagnostic-panel pre {
+  overflow: auto;
+  max-height: 40vh;
+}
+.diagnostic-panel button {
+  padding: 12px;
+  margin: 8px;
+  font: inherit;
+}
+.diagnostic-panel a {
+  color: #f6bd5d;
+}
+#diagnostic-state {
+  font-size: 12px;
+}

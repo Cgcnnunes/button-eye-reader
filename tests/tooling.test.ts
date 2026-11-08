@@ -6,6 +6,33 @@ import { describe, expect, it } from 'vitest';
 const root = fileURLToPath(new URL('../', import.meta.url));
 
 describe('mandatory lint and hook configuration', () => {
+  it('keeps report storage and cleanup separate for TEST and PROD', () => {
+    const config = readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
+    const production = config.split('"production": {')[1].split('"test": {')[0];
+    const test = config.split('"test": {')[1];
+
+    expect(config.split('"env": {')[0]).not.toContain('"r2_buckets"');
+
+    for (const [section, bucket] of [
+      [production, 'button-eye-reader-reports-prod'],
+      [test, 'button-eye-reader-reports-test'],
+    ]) {
+      expect(section).toContain(`"bucket_name": "${bucket}"`);
+
+      expect(section).toContain('"binding": "REPORTS"');
+
+      expect(section).toContain('"crons": ["17 * * * *"]');
+
+      expect(section).toContain('"/diagnostics/*"');
+
+      expect(section).toContain('"/diagnostics.html"');
+    }
+
+    expect(production).not.toContain('button-eye-reader-reports-test');
+
+    expect(test).not.toContain('button-eye-reader-reports-prod');
+  });
+
   it('cancels superseded PR validation while queueing deployments independently', () => {
     const validation = readFileSync(
       new URL('../.github/workflows/execute-pr-validation.yml', import.meta.url),

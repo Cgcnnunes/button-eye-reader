@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+- Add opt-in numerical calibration reports with caregiver review and explicit authenticated upload.
+- Support separate private TEST/PROD R2 storage, signed Access authentication, seven-day report
+  expiry, download and deletion; keep camera images and raw landmarks on the device.
+- Preserve independent gaze verification, dwell thresholds and repeat locks.
+
 ## 0.3.3
 
 - Simplify setup, architecture, testing and release guides with diagrams and tables.

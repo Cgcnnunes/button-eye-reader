@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EyeMarkers, TrackingFrame } from '../src/gaze';
+import { isDiagnosticReport } from '../src/diagnostics';
 import { defaultBoard, parseBoard, STORAGE_KEY } from '../src/store';
 
 const mocks = vi.hoisted(() => ({
@@ -288,6 +289,74 @@ describe('phrase board and gaze UI regression', () => {
     expect(text('screen-title')).toBe('O que quer dizer?');
 
     expect(document.querySelector('footer')?.textContent).toContain('v0.1.0-test');
+  });
+
+  it('collects one opted-in calibration report without changing acceptance or uploading', async () => {
+    await load();
+
+    expect(button('diagnostics').hasAttribute('data-gaze')).toBe(false);
+
+    button('diagnostics').click();
+
+    button('eye-toggle').click();
+
+    expect(text('notice')).toContain('Feche o diagnóstico');
+
+    button('diagnostic-enable').click();
+
+    button('diagnostic-close').click();
+
+    await start();
+
+    calibrate(true);
+
+    expect(text('tracking')).toBe('Olhar desligado');
+
+    expect(text('diagnostic-state')).toContain('não enviado');
+
+    const report: unknown = JSON.parse(text('diagnostic-preview'));
+
+    expect(isDiagnosticReport(report)).toBe(true);
+
+    if (!isDiagnosticReport(report)) throw new Error('Expected numerical report.');
+
+    expect(report.outcome).toBe('failed');
+
+    expect(report.points).toHaveLength(13);
+
+    expect(report.points[9].errors?.bothWithin).toBe(0);
+
+    expect(button('diagnostic-upload').disabled).toBe(false);
+
+    button('diagnostics').click();
+
+    button('diagnostic-discard').click();
+
+    expect(text('diagnostic-preview')).toBe('');
+
+    expect(button('diagnostic-upload').disabled).toBe(true);
+  });
+
+  it('leaves diagnostics off by default and captures opted-in cancellation', async () => {
+    await load();
+
+    await start();
+
+    calibrate();
+
+    expect(text('diagnostic-preview')).toBe('');
+
+    button('diagnostics').click();
+
+    button('diagnostic-enable').click();
+
+    button('diagnostic-close').click();
+
+    await start();
+
+    button('cancel-calibration').click();
+
+    expect(text('diagnostic-preview')).toContain('"outcome": "cancelled"');
   });
 
   it('pages the catalogue, cancels changes and persists a replacement', async () => {

@@ -1,4 +1,5 @@
 import './style.css';
+import { DiagnosticCapture, type DiagnosticReport, REPORT_TRANSFER_KEY } from './diagnostics';
 import { contains, Dwell, type Point, type Target } from './dwell';
 import { assessFaceAlignment, CameraTracker, type TrackingFrame } from './gaze';
 import { fitMapping, type Mapping, predict, type Sample, validationAccepted } from './gaze-math';
@@ -56,6 +57,9 @@ let progressId: string | null = null;
 let lastTrackingFrame: TrackingFrame | null = null;
 let distanceCaptured = false;
 let trackingLabel = 'Olhar desligado';
+let diagnosticRequested = false;
+let diagnosticCapture: DiagnosticCapture | null = null;
+let diagnosticReport: DiagnosticReport | null = null;
 const dwell = new Dwell();
 const calibrationPoints: Point[] = [
   { x: 0.15, y: 0.18 },
@@ -147,6 +151,8 @@ app.innerHTML = `
       <button id="sound" class="helper">Testar som</button>
       <button id="eye-toggle" class="helper">Ativar olhar</button>
       <button id="eye-stop" class="helper" hidden>Desligar câmara</button>
+      <button id="diagnostics" class="helper">Diagnóstico</button>
+      <span id="diagnostic-state" role="status"></span>
       <span class="privacy">Câmara e frases ficam neste dispositivo. · v${__APP_VERSION__}</span>
     </footer>
   </div>
@@ -162,6 +168,17 @@ app.innerHTML = `
       <button id="calibration-set-distance" type="button">Definir esta distância</button>
     </div>
     <button id="cancel-calibration" class="helper">Cancelar</button>
+  </div>
+  <div id="diagnostic-panel" class="diagnostic-panel" hidden role="dialog" aria-modal="true" aria-labelledby="diagnostic-title">
+    <h2 id="diagnostic-title">Diagnóstico · acompanhante</h2>
+    <p>Recolher números de uma calibração para melhorar o olhar. Sem imagens, vídeo, frases ou identificação da pessoa.</p>
+    <p>Apenas nesta sessão. Os dados ficam em memória até decidir enviá-los. O envio exige iniciar sessão e confirmar novamente. Os relatórios guardados expiram após sete dias.</p>
+    <button id="diagnostic-enable">Recolher na próxima calibração</button>
+    <pre id="diagnostic-preview"></pre>
+    <button id="diagnostic-upload" disabled>Rever envio na área privada</button>
+    <button id="diagnostic-discard">Descartar e parar a recolha</button>
+    <button id="diagnostic-close">Voltar à prancha</button>
+    <a href="/diagnostics">Abrir relatórios privados</a>
   </div>`;
 
 function element(id: string): HTMLElement;
@@ -200,6 +217,8 @@ const speaker = new Speaker(notify, (busy) => {
 const tracker = new CameraTracker(
   handleFrame,
   (error) => {
+    finishDiagnostic('camera-error');
+
     stopEyes();
 
     notify(`O olhar foi desligado. ${errorMessage(error)}`);
@@ -649,7 +668,23 @@ function updateEyeDebugMarker(id: string, bounds: TrackingFrame['faceBounds']): 
   marker.setAttribute('ry', String(((bounds.bottom - bounds.top) / 2) * 1000));
 }
 
+function finishDiagnostic(outcome: DiagnosticReport['outcome']): void {
+  if (!diagnosticCapture) return;
+
+  diagnosticReport = diagnosticCapture.finish(outcome, performance.now());
+
+  diagnosticCapture = null;
+
+  element('diagnostic-preview').textContent = JSON.stringify(diagnosticReport, null, 2);
+
+  element('diagnostic-upload', HTMLButtonElement).disabled = false;
+
+  element('diagnostic-state').textContent = 'Relatório em memória · não enviado';
+}
+
 function stopEyes(): void {
+  finishDiagnostic('cancelled');
+
   gazeSession++;
 
   tracker.stop();
@@ -702,6 +737,12 @@ function stopEyes(): void {
 }
 
 async function startEyes(deviceId?: string): Promise<void> {
+  if (!element('diagnostic-panel').hidden) {
+    notify('Feche o diagnóstico antes de ativar o olhar.');
+
+    return;
+  }
+
   if (screen === 'add') {
     notify('Termine a escrita antes de ativar o olhar.');
 
@@ -709,6 +750,25 @@ async function startEyes(deviceId?: string): Promise<void> {
   }
 
   stopEyes();
+
+  if (diagnosticRequested) {
+    diagnosticCapture = new DiagnosticCapture(
+      __APP_VERSION__,
+      innerWidth,
+      innerHeight,
+      performance.now(),
+    );
+
+    diagnosticRequested = false;
+
+    diagnosticReport = null;
+
+    element('diagnostic-preview').textContent = '';
+
+    element('diagnostic-upload', HTMLButtonElement).disabled = true;
+
+    element('diagnostic-state').textContent = 'Diagnóstico: a recolher números';
+  }
 
   const session = gazeSession;
 
@@ -792,6 +852,8 @@ async function startEyes(deviceId?: string): Promise<void> {
   } catch (error) {
     if (session !== gazeSession) return;
 
+    finishDiagnostic('camera-error');
+
     stopEyes();
 
     notify(
@@ -841,6 +903,13 @@ function calibrationFrame(frame: TrackingFrame): void {
   const { features, time } = frame;
   const alignment = updateFaceGuide(frame);
 
+  diagnosticCapture?.frame(
+    frame,
+    alignment.aligned,
+    tracker.video.videoWidth,
+    tracker.video.videoHeight,
+  );
+
   if (!alignment.facePositioned) {
     stageSamples = [];
 
@@ -858,6 +927,8 @@ function calibrationFrame(frame: TrackingFrame): void {
   }
 
   if (time > stageDeadline) {
+    finishDiagnostic('failed');
+
     stopEyes();
 
     notify(
@@ -915,6 +986,8 @@ function calibrationFrame(frame: TrackingFrame): void {
   }
 
   if (eyeMode === 'calibrating') {
+    diagnosticCapture?.point('calibration', points[stage], stageSamples);
+
     samples.push(...stageSamples);
   } else {
     if (!mapping) throw new Error('A calibração não foi encontrada.');
@@ -922,7 +995,11 @@ function calibrationFrame(frame: TrackingFrame): void {
     const calibrated = mapping;
     const predictions = stageSamples.map((s) => predict(calibrated, s.features));
 
+    diagnosticCapture?.point('verification', points[stage], stageSamples, predictions);
+
     if (predictions.some((p) => p === null)) {
+      finishDiagnostic('failed');
+
       stopEyes();
 
       notify(
@@ -971,6 +1048,8 @@ function calibrationFrame(frame: TrackingFrame): void {
   }
 
   if (!validationErrors.every(validationAccepted)) {
+    finishDiagnostic('failed');
+
     stopEyes();
 
     notify(
@@ -979,6 +1058,8 @@ function calibrationFrame(frame: TrackingFrame): void {
 
     return;
   }
+
+  finishDiagnostic('passed');
 
   eyeMode = 'ready';
 
@@ -1190,6 +1271,68 @@ element('eye-toggle').addEventListener('click', () => {
 });
 
 element('eye-stop').addEventListener('click', stopEyes);
+
+element('diagnostics').addEventListener('click', () => {
+  stopEyes();
+
+  content.inert = true;
+
+  element('diagnostic-panel').hidden = false;
+
+  element('diagnostic-enable').focus();
+});
+
+element('diagnostic-enable').addEventListener('click', () => {
+  diagnosticRequested = true;
+
+  element('diagnostic-state').textContent = 'Diagnóstico preparado · próxima calibração';
+});
+
+element('diagnostic-close').addEventListener('click', () => {
+  element('diagnostic-panel').hidden = true;
+
+  content.inert = false;
+
+  element('diagnostics').focus();
+});
+
+element('diagnostic-discard').addEventListener('click', () => {
+  diagnosticRequested = false;
+
+  diagnosticCapture = null;
+
+  diagnosticReport = null;
+
+  element('diagnostic-preview').textContent = '';
+
+  element('diagnostic-state').textContent = '';
+
+  element('diagnostic-upload', HTMLButtonElement).disabled = true;
+
+  try {
+    sessionStorage.removeItem(REPORT_TRANSFER_KEY);
+  } catch (error) {
+    notify(`Não foi possível apagar o relatório pendente. ${errorMessage(error)}`);
+  }
+});
+
+element('diagnostic-upload').addEventListener('click', () => {
+  if (!diagnosticReport) return;
+
+  try {
+    sessionStorage.setItem(
+      REPORT_TRANSFER_KEY,
+      JSON.stringify({
+        expires: Date.now() + 15 * 60 * 1000,
+        report: diagnosticReport,
+      }),
+    );
+
+    window.location.assign('/diagnostics');
+  } catch (error) {
+    notify(`Não foi possível abrir o envio privado. ${errorMessage(error)}`);
+  }
+});
 
 element('cancel-calibration').addEventListener('click', () => {
   stopEyes();
