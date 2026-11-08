@@ -19,44 +19,65 @@ import {
   releaseKind,
 } from './policy.ts';
 
-interface MergedEvent {
-  pull_request: {
-    base: { ref: string };
-    body: string | null;
-    head: { ref: string; sha: string };
-    merge_commit_sha: string;
-    merged: boolean;
-    number: number;
-    title: string;
-  };
-  repository: { full_name: string };
-}
-
-const path = process.env.GITHUB_EVENT_PATH;
-
-if (!path || !process.env.GITHUB_TOKEN) {
-  throw new Error('Release runs only in the authenticated merged-PR workflow.');
-}
-
-const event = JSON.parse(readFileSync(path, 'utf8')) as MergedEvent;
-const pr = event.pull_request;
-
 if (
-  !pr.merged ||
-  pr.base.ref !== 'main' ||
-  event.repository.full_name !== required('GITHUB_REPOSITORY')
+  process.env.GITHUB_EVENT_NAME !== 'push' ||
+  process.env.GITHUB_REF !== 'refs/heads/main' ||
+  !process.env.GITHUB_TOKEN
 ) {
-  throw new Error('Only merged PRs targeting main can release.');
+  throw new Error('Release runs only on authenticated pushes to main.');
 }
-
-branchNumber(pr.head.ref);
-
-parseSubject(pr.title);
 
 const sha = git('rev-parse', 'HEAD');
 
+if (sha !== required('GITHUB_SHA')) {
+  throw new Error('The checked-out commit does not match the main push event.');
+}
+
+const associatedPullRequests = await api(`/commits/${sha}/pulls`);
+
+if (!Array.isArray(associatedPullRequests)) {
+  throw new Error('GitHub did not return pull requests associated with the main commit.');
+}
+
+const mainPullRequests = associatedPullRequests
+  .map(object)
+  .filter((pullRequest) => object(pullRequest.base).ref === 'main');
+
+if (mainPullRequests.length !== 1) {
+  throw new Error('Main push must identify exactly one PR targeting main for this commit.');
+}
+
+const pullRequestNumber = integer(mainPullRequests[0].number);
+const associatedPullRequest = object(await api(`/pulls/${pullRequestNumber}`));
+const base = object(associatedPullRequest.base);
+const head = object(associatedPullRequest.head);
+const baseRepository = object(base.repo);
+const headRepository = object(head.repo);
+const repository = required('GITHUB_REPOSITORY');
+const pr = {
+  body: typeof associatedPullRequest.body === 'string' ? associatedPullRequest.body : null,
+  branch: text(head.ref),
+  head: text(head.sha),
+  number: integer(associatedPullRequest.number),
+  title: text(associatedPullRequest.title),
+};
+
 if (
-  sha !== pr.merge_commit_sha ||
+  associatedPullRequest.merged !== true ||
+  associatedPullRequest.merge_commit_sha !== sha ||
+  base.ref !== 'main' ||
+  baseRepository.full_name !== repository ||
+  headRepository.full_name !== repository ||
+  pr.head === sha
+) {
+  throw new Error('Release requires a merged same-repository PR targeting main.');
+}
+
+branchNumber(pr.branch);
+
+parseSubject(pr.title);
+
+if (
   ![pr.title, `${pr.title} (#${pr.number})`].includes(git('show', '-s', '--format=%s', sha)) ||
   git('show', '-s', '--format=%P', sha).split(' ').length !== 1
 ) {
@@ -122,9 +143,9 @@ if (command === 'prepare') {
   const proof = {
     artifact: integer(Number(required('ARTIFACT_ID'))),
     attempt: integer(Number(required('GITHUB_RUN_ATTEMPT'))),
-    branch: pr.head.ref,
+    branch: pr.branch,
     digest: `sha256:${required('ARTIFACT_DIGEST')}`,
-    head: pr.head.sha,
+    head: pr.head,
     pr: pr.number,
     run: integer(Number(required('GITHUB_RUN_ID'))),
     sha,
@@ -165,7 +186,7 @@ if (command === 'prepare') {
 
   appendFileSync(
     required('GITHUB_STEP_SUMMARY'),
-    `\nPrerelease ${tag}: ${deployment.url}\n\nPROD requires Deploy to PROD dispatch with tag ${tag}.\n`,
+    `\n## TEST prerelease ${tag}\n\nDeployed to TEST; verify this exact version before PROD: ${deployment.url}\n`,
   );
 
   await api(

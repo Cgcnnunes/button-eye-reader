@@ -153,7 +153,7 @@ export function probe(value: any) {
     });
   });
 
-  it('keeps TEST deployment before prereleases and PROD manual, tag-only and artifact-based', () => {
+  it('deploys TEST on main pushes and restricts manual PROD promotion to tested tags', () => {
     const test = readFileSync(
       new URL('../.github/workflows/deploy-to-test.yml', import.meta.url),
       'utf8',
@@ -163,9 +163,9 @@ export function probe(value: any) {
       'utf8',
     );
 
-    expect(test).toContain('types: [closed]');
+    expect(test).toMatch(/^\s+push:\n\s+branches: \[main\]/m);
 
-    expect(test).toContain('github.event.pull_request.merged == true');
+    expect(test).toContain('ref: ${{ github.sha }}');
 
     expect(test).not.toContain('--env production');
 
@@ -181,9 +181,13 @@ export function probe(value: any) {
 
     expect(production).not.toMatch(/^\s+(push|pull_request):/m);
 
-    expect(production).toContain('RELEASE_TAG: ${{ inputs.tag }}');
+    expect(production).toContain('RELEASE_TAG: ${{ github.ref_name }}');
 
-    expect(production).toContain('TEST_APPROVED: ${{ inputs.test_approved }}');
+    expect(production).toContain('ref: ${{ github.ref }}');
+
+    expect(production).not.toContain('test_approved');
+
+    expect(production).not.toContain('inputs.tag');
 
     expect(production).toContain('environment: production');
 

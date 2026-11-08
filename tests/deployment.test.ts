@@ -47,9 +47,9 @@ const release = {
 };
 const run = {
   conclusion: 'success',
-  event: 'pull_request',
-  head_branch: proof.branch,
-  head_sha: proof.head,
+  event: 'push',
+  head_branch: 'main',
+  head_sha: proof.sha,
   id: proof.run,
   path: '.github/workflows/deploy-to-test.yml',
   run_attempt: proof.attempt,
@@ -60,7 +60,7 @@ const artifact = {
   expired: false,
   id: proof.artifact,
   name: 'tested-site-34-1',
-  workflow_run: { head_sha: proof.head, id: proof.run },
+  workflow_run: { head_sha: proof.sha, id: proof.run },
 };
 const marker = `${JSON.stringify({ sha, tag: 'v0.1.1' })}\n`;
 
@@ -156,9 +156,9 @@ describe('deployment API, artifact and promotion orchestration', () => {
 
     vi.stubEnv('GITHUB_EVENT_NAME', 'workflow_dispatch');
 
-    vi.stubEnv('GITHUB_REF', 'refs/heads/main');
+    vi.stubEnv('GITHUB_REF_TYPE', 'tag');
 
-    vi.stubEnv('TEST_APPROVED', 'true');
+    vi.stubEnv('GITHUB_REF', 'refs/tags/v0.1.1');
 
     vi.stubEnv('EXPECTED_SHA', sha);
 
@@ -208,16 +208,16 @@ describe('deployment API, artifact and promotion orchestration', () => {
     ).toBe(false);
   });
 
-  it('requires explicit human acceptance and dispatch from the trusted main workflow', async () => {
-    vi.stubEnv('TEST_APPROVED', 'false');
+  it('requires manual dispatch from the exact selected tag', async () => {
+    vi.stubEnv('GITHUB_REF_TYPE', 'branch');
 
-    await expect(validate()).rejects.toThrow('explicit acceptance');
+    await expect(validate()).rejects.toThrow('only be dispatched from an existing release tag');
 
-    vi.stubEnv('TEST_APPROVED', 'true');
+    vi.stubEnv('GITHUB_REF_TYPE', 'tag');
 
-    vi.stubEnv('GITHUB_REF', 'refs/tags/v0.1.1');
+    vi.stubEnv('GITHUB_REF', 'refs/tags/v0.1.2');
 
-    await expect(validate()).rejects.toThrow('dispatch from main');
+    await expect(validate()).rejects.toThrow('does not match');
   });
 
   it('rejects lightweight tags and version disagreement before deployment', async () => {

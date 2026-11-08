@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+- Deploy TEST on protected `main` pushes and promote PROD by dispatching the exact tested release
+  tag.
+
 ## 0.2.1
 
 - Make Cloudflare Access optional for TEST; send service-token headers only when both secrets are

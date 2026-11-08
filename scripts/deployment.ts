@@ -85,13 +85,16 @@ export async function validate(): Promise<{
 }> {
   if (
     process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch' ||
-    process.env.GITHUB_REF !== 'refs/heads/main' ||
-    process.env.TEST_APPROVED !== 'true'
+    process.env.GITHUB_REF_TYPE !== 'tag'
   ) {
-    throw new Error('PROD requires dispatch from main and explicit acceptance of the tested tag.');
+    throw new Error('PROD can only be dispatched from an existing release tag.');
   }
 
   const tag = releaseTag(required('RELEASE_TAG'));
+
+  if (process.env.GITHUB_REF !== `refs/tags/${tag}`) {
+    throw new Error('Selected workflow tag does not match the release tag being deployed.');
+  }
 
   git('fetch', 'origin', 'main', '--tags');
 
