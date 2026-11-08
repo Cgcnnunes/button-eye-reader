@@ -38,7 +38,7 @@ configured:
 4. Open its settings and confirm its public `workers.dev` route is enabled. If Cloudflare asks for
    an account subdomain, choose it first; both Workers use that account subdomain.
 5. Copy the complete TEST HTTPS URL from the dashboard. Open it and confirm the starter responds.
-6. Repeat steps 1-5 with name **`button-eye-reader`** for PROD, and copy its own HTTPS URL.
+6. Repeat steps 1-5 with name **`button-eye-reader-prod`** for PROD, and copy its own HTTPS URL.
 7. Reload each Worker's settings and confirm the exact names, enabled URLs and absence of any GitHub
    Workers Builds connection or deployment hooks.
 
@@ -46,12 +46,11 @@ The initial contents of **both** Workers are placeholders, not the communication
 successful push-to-main workflow replaces TEST's starter. PROD keeps its starter until you test that
 prerelease and explicitly dispatch PROD promotion.
 
-Expected URL shapes (replace `<account-subdomain>` with the actual value, do not paste
-placeholders):
+Expected URLs for this repository:
 
 ```text
-TEST: https://button-eye-reader-test.<account-subdomain>.workers.dev
-PROD: https://button-eye-reader.<account-subdomain>.workers.dev
+TEST: https://button-eye-reader-test.cgcnnunes.workers.dev
+PROD: https://button-eye-reader-prod.cgcnnunes.workers.dev
 ```
 
 Copy actual URLs from the dashboard instead of guessing or reusing a previously deleted Worker's
@@ -61,8 +60,9 @@ URL.
   If TEST is protected, configure the service-token settings below. Do not use confidential test
   phrases.
 - Confirm names in `wrangler.jsonc`: `env.test.name` is `button-eye-reader-test`;
-  `env.production.name` is `button-eye-reader`. `workers_dev: true` and `preview_urls: false` are
-  explicit; TEST uses a stable address rather than a version-specific Preview URL.
+  `env.production.name` is `button-eye-reader-prod`. The production Worker's name must match the
+  PROD `DEPLOYMENT_URL` hostname. `workers_dev: true` and `preview_urls: false` are explicit; TEST
+  uses a stable address rather than a version-specific Preview URL.
 - Confirm that `assets.directory` matches the build output (`./dist` in this project).
 
 For **another app**, also replace Worker names in `scripts/deployment-policy.ts` and its tests, not
@@ -272,11 +272,14 @@ warnings from the Cloudflare dashboard are not necessarily application failures.
   Correct only the permission identified in the logs.
 - **PROD smoke test says the configured environment URL does not match the deployed Worker:**
   Wrangler has already deployed before the smoke test, so PROD may already be updated even though
-  the workflow failed and the release remains a prerelease. Set `DEPLOYMENT_URL` in the `production`
-  environment to the exact root URL Wrangler printed for the Worker name in `wrangler.jsonc`, then
-  rerun promotion for the same tag while it is still a prerelease. In this repository, Wrangler
-  reported `https://button-eye-reader.cgcnnunes.workers.dev`; the environment URL must not add
-  `-prod` to the Worker name.
+  the workflow failed and the release remains a prerelease. Compare the production `DEPLOYMENT_URL`
+  hostname with `env.production.name` in `wrangler.jsonc`. In this repository, the required PROD URL
+  is `https://button-eye-reader-prod.cgcnnunes.workers.dev`, so `env.production.name` must be
+  `button-eye-reader-prod`. The failed v0.2.2 run used an older configuration and deployed to
+  `https://button-eye-reader.cgcnnunes.workers.dev`; this is not the intended PROD Worker. The
+  corrected configuration is included in v0.2.3. Do not retry v0.2.2 for PROD because its tag still
+  contains the old Worker name; after the fix is merged and its TEST deployment succeeds, promote
+  the new v0.2.3 tag.
 - **TEST environment rejects `main`:** allow the `main` branch in the GitHub `test` environment.
   Keep `production` restricted to tags matching `v*`.
 - **TEST smoke request redirects to Access login or returns 401/403:** deployment may already have

@@ -99,7 +99,8 @@ function reply(path: string): Response {
 }
 
 function configureSmoke(environment = 'test'): void {
-  const url = environment === 'test' ? proof.url : 'https://button-eye-reader.example.workers.dev';
+  const url =
+    environment === 'test' ? proof.url : 'https://button-eye-reader-prod.example.workers.dev';
 
   vi.stubEnv('DEPLOYMENT_URL', url);
 
@@ -113,7 +114,7 @@ function configureSmoke(environment = 'test'): void {
     targets: [url],
     type: 'deploy',
     version_id: proof.version,
-    worker_name: environment === 'test' ? proof.worker : 'button-eye-reader',
+    worker_name: environment === 'test' ? proof.worker : 'button-eye-reader-prod',
     worker_name_overridden: false,
     wrangler_environment: environment,
   });

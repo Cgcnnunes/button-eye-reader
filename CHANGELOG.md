@@ -5,6 +5,7 @@
 - Clarify that production reviewer approval is conditional on GitHub settings availability and
   configuration, document the current tag-only environment restriction, and explain how to recover
   from a PROD URL mismatch after deployment.
+- Name the production Worker `button-eye-reader-prod` to match the configured PROD URL.
 
 ## 0.2.2
 

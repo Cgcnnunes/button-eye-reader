@@ -197,7 +197,7 @@ export function deploymentRecord(
   }
 
   const record = records[0];
-  const worker = environment === 'test' ? 'button-eye-reader-test' : 'button-eye-reader';
+  const worker = environment === 'test' ? 'button-eye-reader-test' : 'button-eye-reader-prod';
   const version = text(record.version_id);
 
   if (

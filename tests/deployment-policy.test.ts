@@ -194,12 +194,12 @@ describe('deployment provenance and exact-tag promotion policy', () => {
         JSON.stringify({
           ...record,
           targets: ['https://button-eye-reader-prod.example.workers.dev'],
-          worker_name: 'button-eye-reader',
+          worker_name: 'button-eye-reader-prod',
           wrangler_environment: 'production',
         }),
         'production',
       ).worker,
-    ).toBe('button-eye-reader');
+    ).toBe('button-eye-reader-prod');
   });
 
   it('rejects missing, duplicate and wrong-environment deployment output', () => {
@@ -222,5 +222,17 @@ describe('deployment provenance and exact-tag promotion policy', () => {
     ]) {
       expect(() => deploymentRecord(JSON.stringify({ ...record, ...change }), 'test')).toThrow();
     }
+
+    expect(() =>
+      deploymentRecord(
+        JSON.stringify({
+          ...record,
+          targets: ['https://button-eye-reader-prod.example.workers.dev'],
+          worker_name: 'button-eye-reader',
+          wrangler_environment: 'production',
+        }),
+        'production',
+      ),
+    ).toThrow();
   });
 });

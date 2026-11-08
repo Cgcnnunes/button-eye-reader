@@ -11,7 +11,7 @@
   "observability": { "enabled": false },
   "env": {
     "production": {
-      "name": "button-eye-reader",
+      "name": "button-eye-reader-prod",
       "assets": {
         "directory": "./dist",
         "not_found_handling": "single-page-application",
