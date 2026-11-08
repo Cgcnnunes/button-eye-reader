@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.1
+
+- Fit all tablet screens to dynamic viewport height with adaptive target text, spacing and form
+  sizing; remove overflow hiding and validate A16-sized portrait/landscape and shorter viewports.
+- Increase separation between speaking targets and navigation for native Eye Tracking.
+- Add a bottom-left caregiver toggle and expanding labelled panel for sound, phrase entry and system
+  Eye Tracking help; support close/Escape focus restoration without pretending to toggle tracking.
+- Remove the initial speech-status prompt while preserving speech feedback and errors.
+- Remove the text brand/logo, center speaking text without action subtitles, move experimental
+  status next to the footer version and raise the board catalogue button to at least 96px.
+- Start with yes/no/bathroom/pain phrases, add the pain phrase to the catalogue and upgrade
+  recognized old bottom defaults without overwriting customized selections or dropping phrases.
+
 ## 0.4.0
 
 - Replace app-managed camera tracking, calibration and dwell with standard button activation for

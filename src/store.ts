@@ -41,12 +41,45 @@ const templates = [
   'Gosto de ti',
   'Quero silêncio',
   'Chama alguém',
+  'Tenho dores',
 ];
 
 export function defaultBoard(): Board {
   const phrases = templates.map((text, index) => ({ id: `template-${index}`, text }));
 
-  return { phrases, slots: ['template-0', 'template-1', 'template-2', 'template-3'], version: 1 };
+  return { phrases, slots: ['template-0', 'template-1', 'template-12', 'template-28'], version: 1 };
+}
+
+export function upgradeDefaultSlots(board: Board): Board {
+  const changes = [
+    { oldId: 'template-2', oldText: 'Quero água', slot: 2, text: 'Preciso de ir à casa de banho' },
+    { oldId: 'template-3', oldText: 'Preciso de ajuda', slot: 3, text: 'Tenho dores' },
+  ];
+  let next = board;
+
+  for (const change of changes) {
+    if (
+      next.slots[change.slot] !== change.oldId ||
+      !next.phrases.some((phrase) => phrase.id === change.oldId && phrase.text === change.oldText)
+    )
+      continue;
+
+    let replacement = next.phrases.find(
+      (phrase) => phrase.text.toLocaleLowerCase('pt-PT') === change.text.toLocaleLowerCase('pt-PT'),
+    );
+
+    if (!replacement) {
+      next = addPhrase(next, change.text);
+
+      replacement = next.phrases.at(-1);
+    }
+
+    if (!replacement) throw new Error('A frase de substituição não foi encontrada.');
+
+    next = replaceSlot(next, change.slot, replacement.id);
+  }
+
+  return next;
 }
 
 export function parseBoard(raw: string): Board {

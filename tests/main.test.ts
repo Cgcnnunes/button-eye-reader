@@ -136,7 +136,9 @@ describe('standard accessible phrase board', () => {
 
     expect(text('screen-hint')).toContain('Controlo ocular do iPad');
 
-    expect(button('add').textContent).toContain('Para quem acompanha');
+    expect(button('add').closest('[role="group"]')?.getAttribute('aria-labelledby')).toBe(
+      'caregiver-label',
+    );
 
     expect(document.querySelector('footer')?.textContent).toContain('v0.1.0-test');
 
@@ -145,8 +147,122 @@ describe('standard accessible phrase board', () => {
 
       button(`speak:${index}`).click();
 
-      expect(mocks.speak).toHaveBeenLastCalledWith(defaultBoard().phrases[index].text);
+      const board = defaultBoard();
+
+      expect(mocks.speak).toHaveBeenLastCalledWith(
+        board.phrases.find((phrase) => phrase.id === board.slots[index])?.text,
+      );
     }
+  });
+
+  it('keeps caregiver helpers together outside the speaking area and starts with no idle prompt', async () => {
+    await load();
+
+    expect(text('spoken')).toBe('');
+
+    expect(document.body.textContent).not.toContain('Toque numa frase para falar.');
+
+    expect(document.querySelectorAll('#add')).toHaveLength(1);
+
+    expect(button('add').parentElement).toBe(button('sound').parentElement);
+
+    expect(button('sound').nextElementSibling).toBe(button('add'));
+
+    expect(button('add').className).toBe(button('sound').className);
+
+    expect(button('add').closest('footer')).not.toBeNull();
+
+    expect(button('add').closest('main')).toBeNull();
+
+    expect(document.querySelectorAll('main .control-button')).toHaveLength(1);
+
+    button('catalogue').click();
+
+    expect(button('add').hidden).toBe(true);
+
+    button('board').click();
+
+    expect(button('add').hidden).toBe(false);
+
+    button('add').click();
+
+    expect(document.querySelector('form')).not.toBeNull();
+
+    expect(button('add').hidden).toBe(true);
+
+    button('form-back').click();
+
+    expect(button('add').hidden).toBe(false);
+  });
+
+  it('expands caregiver options, shows system instructions and restores focus on closing', async () => {
+    await load();
+
+    expect(document.getElementById('caregiver-panel')?.hidden).toBe(true);
+
+    button('caregiver-toggle').click();
+
+    expect(button('caregiver-toggle').getAttribute('aria-expanded')).toBe('true');
+
+    expect(document.getElementById('caregiver-hint')?.hidden).toBe(true);
+
+    expect(document.activeElement).toBe(button('caregiver-close'));
+
+    button('sound').click();
+
+    expect(mocks.speak).toHaveBeenLastCalledWith('Olá. Esta é a minha voz.');
+
+    button('eye-help').click();
+
+    expect(text('eye-help-text')).toContain('Ajustes -> Acessibilidade -> Rastreamento dos Olhos');
+
+    expect(document.getElementById('eye-help-text')?.hidden).toBe(false);
+
+    button('eye-help').click();
+
+    expect(document.getElementById('eye-help-text')?.hidden).toBe(true);
+
+    button('caregiver-close').click();
+
+    expect(document.activeElement).toBe(button('caregiver-toggle'));
+
+    button('caregiver-toggle').click();
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+
+    expect(button('caregiver-toggle').getAttribute('aria-expanded')).toBe('false');
+
+    button('caregiver-toggle').click();
+
+    button('add').click();
+
+    expect(document.querySelector('form')).not.toBeNull();
+
+    expect(document.getElementById('caregiver-panel')?.hidden).toBe(true);
+  });
+
+  it('preserves the loaded saved board and reports a startup upgrade write failure', async () => {
+    const old = defaultBoard();
+
+    old.slots = ['template-0', 'template-1', 'template-2', 'template-3'];
+
+    const raw = JSON.stringify(old);
+
+    localStorage.setItem(STORAGE_KEY, raw);
+
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Sem espaço', 'QuotaExceededError');
+    });
+
+    await load();
+
+    expect(button('speak:2').textContent).toContain('Quero água');
+
+    expect(button('speak:3').textContent).toContain('Preciso de ajuda');
+
+    expect(text('notice')).toContain('guardar a atualização');
+
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(raw);
   });
 
   it('supports pointer-style click activation without app calibration or dwell timers', async () => {
@@ -156,7 +272,7 @@ describe('standard accessible phrase board', () => {
 
     button('speak:2').dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-    expect(mocks.speak).toHaveBeenCalledWith('Quero água');
+    expect(mocks.speak).toHaveBeenCalledWith('Preciso de ir à casa de banho');
 
     expect(text('spoken')).toContain('A dizer:');
 
@@ -216,11 +332,77 @@ describe('standard accessible phrase board', () => {
 
     while (!button('next').disabled) button('next').click();
 
-    expect(text('screen-hint')).toContain('página 7 de 7');
+    expect(text('screen-hint')).toContain('página 8 de 8');
 
     button('next').click();
 
-    expect(text('screen-hint')).toContain('página 7 de 7');
+    expect(text('screen-hint')).toContain('página 8 de 8');
+  });
+
+  it('keeps guidance without a logo in the header and experimental beside the footer version', async () => {
+    await load();
+
+    expect(document.querySelector('header #screen-title')?.tagName).toBe('H1');
+
+    expect(document.querySelector('header #screen-hint')).not.toBeNull();
+
+    expect(document.querySelector('header img')).toBeNull();
+
+    expect(document.querySelector('header .experimental')).toBeNull();
+
+    expect(document.querySelector('footer .release-label')?.textContent).toContain('EXPERIMENTAL');
+
+    expect(document.querySelector('footer .release-label')?.textContent).toContain('v0.1.0-test');
+
+    expect(document.body.textContent).not.toContain('Uma frase de cada vez');
+  });
+
+  it('shows only phrase text on speaking buttons while preserving catalogue action hints', async () => {
+    await load();
+
+    for (const target of document.querySelectorAll('.phrase-button')) {
+      expect(target.querySelector('small')).toBeNull();
+
+      expect(target.children).toHaveLength(1);
+
+      expect(target.textContent).toBe(target.querySelector('.button-text')?.textContent);
+    }
+
+    button('catalogue').click();
+
+    expect(document.querySelector('.phrase-button small')?.textContent).toBe('Escolher frase');
+  });
+
+  it('persists old default upgrades and preserves saved choices when migration storage fails', async () => {
+    const old = defaultBoard();
+
+    old.phrases = old.phrases.slice(0, 28);
+
+    old.slots = ['template-0', 'template-1', 'template-2', 'template-3'];
+
+    const raw = JSON.stringify(old);
+
+    localStorage.setItem(STORAGE_KEY, raw);
+
+    await load();
+
+    expect(button('speak:2').textContent).toContain('casa de banho');
+
+    expect(button('speak:3').textContent).toContain('Tenho dores');
+
+    expect(parseBoard(localStorage.getItem(STORAGE_KEY) ?? '').phrases).toHaveLength(29);
+
+    localStorage.setItem(STORAGE_KEY, raw);
+
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Sem espaço', 'QuotaExceededError');
+    });
+
+    window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEY }));
+
+    expect(text('notice')).toContain('guardar a atualização');
+
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(raw);
   });
 
   it('keeps writing caregiver-labelled and does not claim to disable system Eye Tracking', async () => {
@@ -248,7 +430,7 @@ describe('standard accessible phrase board', () => {
 
     expect(text('notice')).toContain('Frase guardada');
 
-    expect(document.querySelector('img')).toBeNull();
+    expect(document.querySelector('main img')).toBeNull();
 
     button('board').click();
 

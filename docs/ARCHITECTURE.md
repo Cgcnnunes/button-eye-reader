@@ -29,6 +29,21 @@ flowchart LR
 ## Safety and privacy invariants
 
 - Four speaking targets; catalogue navigation and replacement need no typing.
+- Main targets have 24px–40px height-adaptive gaps on tablet layouts (24px on narrow screens), with
+  separate navigation. A 44px bottom-left caregiver toggle opens a low, full-width panel with
+  labelled sound, add-phrase and system Eye Tracking help options. Add-phrase is offered only on the
+  board. Close/Escape restores toggle focus; navigation closes the panel. The idle speech status
+  starts empty. This is workflow separation, not a touch-only gate or system tracking toggle.
+- The top header shows only the question/hint. Speaking buttons show horizontally/vertically
+  centered phrase text without an action subtitle; the board catalogue button has larger text.
+  Experimental status stays beside the footer version; the board catalogue button adapts from 72px
+  to 96px as viewport height permits.
+- Tablet layouts use the dynamic viewport height and shrinkable grid rows across all four screens.
+  Phrase typography follows the available grid height; the caregiver textarea cannot be manually
+  resized past its allocated space. No overflow hiding is used to conceal clipped content.
+- Starting slots are yes, no, bathroom and pain. Recognized old default bottom slots are upgraded on
+  load (including cross-tab changes), preserving customized slots and all catalogue phrases. Save
+  the upgrade before displaying it; storage failures preserve saved data and report an error.
 - Writing is labelled for caregivers. This is a workflow boundary, not authentication or a
   system-input lock: the website cannot disable Apple's Eye Tracking in the form.
 - Persist phrases successfully before changing the in-memory board. Report/preserve corrupt storage.
