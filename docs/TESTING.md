@@ -62,10 +62,11 @@ audio.
 
 Use the Cloudflare **HTTPS** site in updated Safari, page zoom 100%, normal browsing, without Split
 View. Prefer landscape. A local Windows PC address over HTTP does not grant camera access on the
-iPad; use the separate HTTPS TEST Worker instead. Record its `release.json` tag/SHA and manual
-results before the next merge overwrites TEST. Its phrase storage is separate from PROD. A locally
-trusted HTTPS certificate can also work, but requires configuring trust on the iPad and is not part
-of this minimal setup.
+iPad; use the separate HTTPS TEST Worker instead. Sign in through Cloudflare Access with an approved
+tester identity; never put the CI service token into the browser or app. Record its `release.json`
+tag/SHA and manual results before the next merge overwrites TEST. Its phrase storage is separate
+from PROD. A locally trusted HTTPS certificate can also work, but requires configuring trust on the
+iPad and is not part of this minimal setup.
 
 The assistant cannot automatically inspect your iPad or camera. Shared desktop browser tools do not
 connect to remote iPad Safari. Apple's Safari Web Inspector normally needs a **Mac**, cable/trusted
