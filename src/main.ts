@@ -95,12 +95,21 @@ function readFaceWidth(): number {
 }
 
 let targetFaceWidth = readFaceWidth();
+const eyeDebugEnabled = import.meta.env.DEV || document.documentElement.dataset.eyeDebug === 'true';
 const validationPoints: Point[] = [
   { x: 0.25, y: 0.3 },
   { x: 0.75, y: 0.3 },
   { x: 0.75, y: 0.7 },
   { x: 0.25, y: 0.7 },
 ];
+const eyeDebugMarkup = eyeDebugEnabled
+  ? `<svg id="eye-debug-overlay" class="eye-debug-overlay" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">
+      <ellipse id="eye-debug-left-eye" class="eye-debug-eye"></ellipse>
+      <ellipse id="eye-debug-left-iris" class="eye-debug-iris"></ellipse>
+      <ellipse id="eye-debug-right-eye" class="eye-debug-eye"></ellipse>
+      <ellipse id="eye-debug-right-iris" class="eye-debug-iris"></ellipse>
+    </svg>`
+  : '';
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Ocorreu um erro inesperado.';
@@ -117,6 +126,7 @@ app.innerHTML = `
       <div id="camera-view" class="camera-view">
         <div id="face-target" class="face-target" aria-hidden="true"></div>
         <div id="face-outline" class="face-outline" aria-hidden="true" hidden></div>
+        ${eyeDebugMarkup}
       </div>
       <div class="camera-guide-copy">
         <strong id="face-state">Ajuste a posição</strong>
@@ -187,11 +197,15 @@ const speaker = new Speaker(notify, (busy) => {
   if (!busy) element('spoken').textContent = 'Pronto para a próxima frase.';
 });
 
-const tracker = new CameraTracker(handleFrame, (error) => {
-  stopEyes();
+const tracker = new CameraTracker(
+  handleFrame,
+  (error) => {
+    stopEyes();
 
-  notify(`O olhar foi desligado. ${errorMessage(error)}`);
-});
+    notify(`O olhar foi desligado. ${errorMessage(error)}`);
+  },
+  eyeDebugEnabled,
+);
 
 const cameraView = element('camera-view');
 
@@ -542,6 +556,8 @@ function updateFaceGuide(frame: TrackingFrame): ReturnType<typeof assessFaceAlig
 
   view.style.setProperty('--camera-content-height', `${contentHeightPercent}%`);
 
+  view.style.setProperty('--camera-content-left', `${(offsetX / viewWidth) * 100}%`);
+
   view.style.setProperty('--camera-content-top', `${(offsetY / viewHeight) * 100}%`);
 
   element('face-state').textContent = alignment.aligned ? 'Rosto na área certa' : 'Ajuste o rosto';
@@ -566,7 +582,71 @@ function updateFaceGuide(frame: TrackingFrame): ReturnType<typeof assessFaceAlig
     outline.style.height = `${(((bounds.bottom - bounds.top) * contentHeight) / viewHeight) * 100}%`;
   }
 
+  if (eyeDebugEnabled)
+    updateEyeDebug(frame, viewWidth, viewHeight, offsetX, offsetY, contentWidth, contentHeight);
+
   return alignment;
+}
+
+function updateEyeDebug(
+  frame: TrackingFrame,
+  viewWidth: number,
+  viewHeight: number,
+  offsetX: number,
+  offsetY: number,
+  contentWidth: number,
+  contentHeight: number,
+): void {
+  const overlay = document.getElementById('eye-debug-overlay');
+
+  if (!(overlay instanceof SVGSVGElement)) {
+    throw new Error('O marcador de olhos de desenvolvimento está em falta.');
+  }
+
+  overlay.style.left = `${(offsetX / viewWidth) * 100}%`;
+
+  overlay.style.top = `${(offsetY / viewHeight) * 100}%`;
+
+  overlay.style.width = `${(contentWidth / viewWidth) * 100}%`;
+
+  overlay.style.height = `${(contentHeight / viewHeight) * 100}%`;
+
+  const markers = frame.eyeMarkers;
+
+  overlay.style.display =
+    markers && Object.values(markers).some((bounds) => bounds !== null) ? 'block' : 'none';
+
+  updateEyeDebugMarker('eye-debug-left-eye', markers?.leftEye ?? null);
+
+  updateEyeDebugMarker('eye-debug-left-iris', markers?.leftIris ?? null);
+
+  updateEyeDebugMarker('eye-debug-right-eye', markers?.rightEye ?? null);
+
+  updateEyeDebugMarker('eye-debug-right-iris', markers?.rightIris ?? null);
+}
+
+function updateEyeDebugMarker(id: string, bounds: TrackingFrame['faceBounds']): void {
+  const marker = document.getElementById(id);
+
+  if (!(marker instanceof SVGElement)) {
+    throw new Error(`O marcador de olhos ${id} está em falta.`);
+  }
+
+  if (!bounds) {
+    marker.style.display = 'none';
+
+    return;
+  }
+
+  marker.style.display = '';
+
+  marker.setAttribute('cx', String((1 - (bounds.left + bounds.right) / 2) * 1000));
+
+  marker.setAttribute('cy', String(((bounds.top + bounds.bottom) / 2) * 1000));
+
+  marker.setAttribute('rx', String(((bounds.right - bounds.left) / 2) * 1000));
+
+  marker.setAttribute('ry', String(((bounds.bottom - bounds.top) / 2) * 1000));
 }
 
 function stopEyes(): void {
@@ -740,6 +820,23 @@ function showStage(): void {
     : 'Ajuste a pessoa na posição habitual e selecione esta distância.';
 }
 
+function validationDiagnostic(): string {
+  const summaries = validationErrors.map((errors, index) => {
+    const withinX = errors.filter((error) => Number.isFinite(error.x) && error.x <= 0.12).length;
+    const withinY = errors.filter((error) => Number.isFinite(error.y) && error.y <= 0.12).length;
+    const withinBoth = errors.filter(
+      (error) =>
+        Number.isFinite(error.x) && Number.isFinite(error.y) && error.x <= 0.12 && error.y <= 0.12,
+    ).length;
+    const percentage = (count: number): string =>
+      `${errors.length ? Math.round((count / errors.length) * 100) : 0}%`;
+
+    return `alvo ${index + 1} (n=${errors.length}): X ${percentage(withinX)}, Y ${percentage(withinY)}, ambos ${percentage(withinBoth)}`;
+  });
+
+  return ` Diagnóstico local — amostras dentro de ±12% por eixo: ${summaries.join('; ')}.`;
+}
+
 function calibrationFrame(frame: TrackingFrame): void {
   const { features, time } = frame;
   const alignment = updateFaceGuide(frame);
@@ -828,7 +925,9 @@ function calibrationFrame(frame: TrackingFrame): void {
     if (predictions.some((p) => p === null)) {
       stopEyes();
 
-      notify('O olhar saiu da posição calibrada. Fixe o iPad e volte a calibrar.');
+      notify(
+        'O olhar saiu da posição calibrada. Mantenha o ecrã e a câmara fixos e volte a calibrar.',
+      );
 
       return;
     }
@@ -875,7 +974,7 @@ function calibrationFrame(frame: TrackingFrame): void {
     stopEyes();
 
     notify(
-      'A verificação não foi suficientemente precisa (90% dos pontos devem ficar a menos de 12% do ecrã em cada direção). O olhar não foi ativado. Use o toque ou tente calibrar novamente.',
+      `A verificação não foi suficientemente precisa (90% dos pontos devem ficar a menos de 12% do ecrã em cada direção). O olhar não foi ativado. Use o toque ou tente calibrar novamente.${eyeDebugEnabled ? validationDiagnostic() : ''}`,
     );
 
     return;

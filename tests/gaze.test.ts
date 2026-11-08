@@ -1,6 +1,11 @@
 import type { FaceLandmarkerOptions } from '@mediapipe/tasks-vision';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { assessFaceAlignment, CameraTracker, type TrackingFrame } from '../src/gaze';
+import {
+  assessFaceAlignment,
+  CameraTracker,
+  type EyeMarkers,
+  type TrackingFrame,
+} from '../src/gaze';
 
 const mocks = vi.hoisted(() => ({
   close: vi.fn(),
@@ -50,7 +55,7 @@ describe('camera lifecycle', () => {
       createElement: () => ({ currentTime: 1, pause, play, readyState: 2, setAttribute: vi.fn() }),
     });
 
-    tracker = new CameraTracker(frame, error);
+    tracker = new CameraTracker(frame, error, true);
   });
 
   afterEach(() => {
@@ -210,6 +215,49 @@ describe('camera lifecycle', () => {
     expect(result?.faceBounds?.top).toBeCloseTo(0.25);
 
     expect(result?.faceBounds?.bottom).toBeCloseTo(0.3);
+  });
+
+  it('reports eye and iris bounds for local eye-tracking diagnostics', async () => {
+    const points = Array.from({ length: 478 }, () => ({ x: 0.5, y: 0.5, z: 0 }));
+    const landmarks = new Map<number, { x: number; y: number }>([
+      [33, { x: 0.4, y: 0.42 }],
+      [133, { x: 0.48, y: 0.42 }],
+      [159, { x: 0.44, y: 0.39 }],
+      [145, { x: 0.44, y: 0.45 }],
+      [263, { x: 0.6, y: 0.42 }],
+      [362, { x: 0.52, y: 0.42 }],
+      [374, { x: 0.56, y: 0.45 }],
+      [386, { x: 0.56, y: 0.39 }],
+      [468, { x: 0.44, y: 0.42 }],
+      [469, { x: 0.43, y: 0.42 }],
+      [470, { x: 0.44, y: 0.41 }],
+      [471, { x: 0.45, y: 0.42 }],
+      [472, { x: 0.44, y: 0.43 }],
+      [473, { x: 0.56, y: 0.42 }],
+      [474, { x: 0.55, y: 0.42 }],
+      [475, { x: 0.56, y: 0.41 }],
+      [476, { x: 0.57, y: 0.42 }],
+      [477, { x: 0.56, y: 0.43 }],
+    ]);
+
+    for (const [index, landmark] of landmarks) {
+      points[index] = { ...landmark, z: 0 };
+    }
+
+    mocks.detect.mockReturnValue({ faceLandmarks: [points] });
+
+    await tracker.start();
+
+    const result = frame.mock.calls[0]?.[0];
+
+    const expected: EyeMarkers = {
+      leftEye: { bottom: 0.45, left: 0.4, right: 0.48, top: 0.39 },
+      leftIris: { bottom: 0.43, left: 0.43, right: 0.45, top: 0.41 },
+      rightEye: { bottom: 0.45, left: 0.52, right: 0.6, top: 0.39 },
+      rightIris: { bottom: 0.43, left: 0.55, right: 0.57, top: 0.41 },
+    };
+
+    expect(result?.eyeMarkers).toEqual(expected);
   });
 
   it('reports frozen video rather than using stale positions', async () => {

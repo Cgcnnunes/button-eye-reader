@@ -378,6 +378,25 @@ textarea {
   border-radius: 48% 48% 42% 42%;
   pointer-events: none;
 }
+.eye-debug-overlay {
+  position: absolute;
+  z-index: 3;
+  display: none;
+  pointer-events: none;
+  overflow: visible;
+}
+.eye-debug-eye {
+  fill: #00e5ff26;
+  stroke: #00e5ff;
+  stroke-width: 4;
+  vector-effect: non-scaling-stroke;
+}
+.eye-debug-iris {
+  fill: #f6bd5d40;
+  stroke: #f6bd5d;
+  stroke-width: 4;
+  vector-effect: non-scaling-stroke;
+}
 .camera-view.aligned .face-outline {
   border-color: #14744b;
 }
