@@ -32,6 +32,10 @@ prototype** using the front camera.
 - Automatic nine-point calibration and four-point validation. Selection requires **2 seconds** of
   continuous gaze. The gold bar shows progress. Another selection requires 400 ms of valid gaze
   outside the selected button.
+- Full-screen mirrored camera view during calibration, with a detected-face outline, face target,
+  eye-follow circles and a caregiver button to save the current apparent face size as the seating
+  distance reference. In use, gaze pauses when the face or eyes leave the supported area. This is
+  image-based guidance, not a physical distance or head-pose measurement.
 - Camera shutdown on leaving the page, resizing/reorienting, scrolling or opening text entry.
   Recalibration is required afterwards.
 
@@ -55,6 +59,11 @@ initiate speech through touch, but **do not guarantee** permanent authorization.
 the absence of a confirmed pt-PT voice are shown on screen. Check Portuguese voice availability in
 the iPad accessibility/spoken-content settings, volume and audio output. Listen to the actual accent
 before use.
+
+Face guidance checks the detected face's position and apparent size, and whether both eyes can be
+used by the tracker. It does not measure physical distance or guarantee that the head is facing
+straight ahead. Adjust the target while the iPad is fixed in its intended mount, then validate the
+guidance with the intended user.
 
 Phrases persist only in this browser and origin. Changing domains, clearing browser data, private
 browsing or losing the device may remove them. Do not enter confidential information: this initial

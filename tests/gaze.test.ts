@@ -1,6 +1,6 @@
 import type { FaceLandmarkerOptions } from '@mediapipe/tasks-vision';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CameraTracker } from '../src/gaze';
+import { assessFaceAlignment, CameraTracker, type TrackingFrame } from '../src/gaze';
 
 const mocks = vi.hoisted(() => ({
   close: vi.fn(),
@@ -15,7 +15,7 @@ vi.mock('@mediapipe/tasks-vision', () => ({
 }));
 
 describe('camera lifecycle', () => {
-  const frame = vi.fn();
+  const frame = vi.fn<(frame: TrackingFrame) => void>();
   const error = vi.fn();
   const stop = vi.fn();
   const play = vi.fn();
@@ -72,7 +72,7 @@ describe('camera lifecycle', () => {
       throw new Error('Expected video constraints');
     }
 
-    expect(constraints.video.facingMode).toBe('user');
+    expect(constraints.video.facingMode).toEqual({ ideal: 'user' });
 
     expect(mocks.resolve).toHaveBeenCalledWith('/vision/wasm');
 
@@ -87,6 +87,30 @@ describe('camera lifecycle', () => {
     expect(stop).toHaveBeenCalledTimes(1);
 
     expect(mocks.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('can select a connected PC camera for manual prototyping', async () => {
+    await tracker.start('usb-camera');
+
+    const constraints = getUserMedia.mock.calls[0][0];
+
+    if (typeof constraints.video !== 'object') {
+      throw new Error('Expected video constraints');
+    }
+
+    expect(constraints.video.deviceId).toEqual({ exact: 'usb-camera' });
+
+    expect(constraints.video).not.toHaveProperty('facingMode');
+  });
+
+  it('lists only video input devices after camera permission', async () => {
+    const camera = { deviceId: 'front', kind: 'videoinput' } as MediaDeviceInfo;
+    const microphone = { deviceId: 'mic', kind: 'audioinput' } as MediaDeviceInfo;
+    const enumerateDevices = vi.fn().mockResolvedValue([camera, microphone]);
+
+    vi.stubGlobal('navigator', { mediaDevices: { enumerateDevices, getUserMedia } });
+
+    await expect(tracker.listVideoInputs()).resolves.toEqual([camera]);
   });
 
   it('stops a stream granted after the user canceled', async () => {
@@ -156,7 +180,36 @@ describe('camera lifecycle', () => {
 
     await tracker.start();
 
-    expect(frame).toHaveBeenCalledWith(expect.objectContaining({ features: null }));
+    expect(frame).toHaveBeenCalledWith(
+      expect.objectContaining({ faceBounds: null, faceCount: 2, features: null }),
+    );
+  });
+
+  it('reports the detected face bounds even when eye features are unavailable', async () => {
+    const points = Array.from({ length: 478 }, (_, index) => ({
+      visibility: 1,
+      x: 0.3 + index / 4780,
+      y: 0.25 + index / 9560,
+      z: 0,
+    }));
+
+    mocks.detect.mockReturnValue({ faceLandmarks: [points] });
+
+    await tracker.start();
+
+    const result = frame.mock.calls[0]?.[0];
+
+    expect(result?.faceCount).toBe(1);
+
+    expect(result?.features).toBeNull();
+
+    expect(result?.faceBounds?.left).toBeCloseTo(0.3);
+
+    expect(result?.faceBounds?.right).toBeCloseTo(0.4);
+
+    expect(result?.faceBounds?.top).toBeCloseTo(0.25);
+
+    expect(result?.faceBounds?.bottom).toBeCloseTo(0.3);
   });
 
   it('reports frozen video rather than using stale positions', async () => {
@@ -203,5 +256,72 @@ describe('camera lifecycle', () => {
     );
 
     expect(stop).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('face positioning guidance', () => {
+  const alignedBounds = { bottom: 0.66, left: 0.36, right: 0.64, top: 0.3 };
+  const alignedFrame: TrackingFrame = {
+    faceBounds: alignedBounds,
+    faceCount: 1,
+    features: [0.5],
+    time: 0,
+  };
+
+  it('accepts a centered face with visible eyes', () => {
+    expect(assessFaceAlignment(alignedFrame, 0.28)).toMatchObject({
+      aligned: true,
+      facePositioned: true,
+    });
+  });
+
+  it('asks the person to move closer or farther based on face size', () => {
+    expect(assessFaceAlignment(alignedFrame, 0.4).message).toContain('Aproxime');
+
+    expect(assessFaceAlignment(alignedFrame, 0.18).message).toContain('Afaste');
+  });
+
+  it('gives mirrored horizontal and vertical movement hints', () => {
+    expect(
+      assessFaceAlignment(
+        { ...alignedFrame, faceBounds: { ...alignedBounds, left: 0.52, right: 0.8 } },
+        0.28,
+      ).message,
+    ).toContain('direita');
+
+    expect(
+      assessFaceAlignment(
+        { ...alignedFrame, faceBounds: { ...alignedBounds, left: 0.2, right: 0.48 } },
+        0.28,
+      ).message,
+    ).toContain('esquerda');
+
+    expect(
+      assessFaceAlignment(
+        { ...alignedFrame, faceBounds: { ...alignedBounds, bottom: 0.41, top: 0.05 } },
+        0.28,
+      ).message,
+    ).toContain('Baixe');
+
+    expect(
+      assessFaceAlignment(
+        { ...alignedFrame, faceBounds: { ...alignedBounds, bottom: 0.94, top: 0.58 } },
+        0.28,
+      ).message,
+    ).toContain('Levante');
+  });
+
+  it('distinguishes no face, multiple faces, and eyes that are not visible', () => {
+    expect(
+      assessFaceAlignment({ ...alignedFrame, faceBounds: null, faceCount: 0 }, 0.28).message,
+    ).toContain('Olhe');
+
+    expect(assessFaceAlignment({ ...alignedFrame, faceCount: 2 }, 0.28).message).toContain(
+      'outras pessoas',
+    );
+
+    expect(assessFaceAlignment({ ...alignedFrame, features: null }, 0.28).message).toContain(
+      'olhos abertos',
+    );
   });
 });
