@@ -2,6 +2,7 @@ import { FaceLandmarker, FilesetResolver, type NormalizedLandmark } from '@media
 import { extractFeatures } from './gaze-math';
 
 export interface TrackingFrame {
+  eyeMarkers?: EyeMarkers;
   faceBounds: FaceBounds | null;
   faceCount: number;
   features: number[] | null;
@@ -19,6 +20,13 @@ export interface FaceAlignment {
   aligned: boolean;
   facePositioned: boolean;
   message: string;
+}
+
+export interface EyeMarkers {
+  leftEye: FaceBounds | null;
+  leftIris: FaceBounds | null;
+  rightEye: FaceBounds | null;
+  rightIris: FaceBounds | null;
 }
 
 export function assessFaceAlignment(frame: TrackingFrame, targetWidth: number): FaceAlignment {
@@ -107,6 +115,39 @@ function faceBounds(points: NormalizedLandmark[]): FaceBounds | null {
   };
 }
 
+function landmarkBounds(points: NormalizedLandmark[], indices: number[]): FaceBounds | null {
+  const selected: NormalizedLandmark[] = [];
+
+  for (const index of indices) {
+    const point = points[index];
+
+    if (
+      !point ||
+      !Number.isFinite(point.x) ||
+      !Number.isFinite(point.y) ||
+      point.x < 0 ||
+      point.x > 1 ||
+      point.y < 0 ||
+      point.y > 1
+    ) {
+      return null;
+    }
+
+    selected.push(point);
+  }
+
+  return faceBounds(selected);
+}
+
+function eyeMarkers(points: NormalizedLandmark[]): EyeMarkers {
+  return {
+    leftEye: landmarkBounds(points, [33, 133, 159, 145]),
+    leftIris: landmarkBounds(points, [468, 469, 470, 471, 472]),
+    rightEye: landmarkBounds(points, [362, 263, 386, 374]),
+    rightIris: landmarkBounds(points, [473, 474, 475, 476, 477]),
+  };
+}
+
 export class CameraTracker {
   private model: FaceLandmarker | null = null;
   private stream: MediaStream | null = null;
@@ -114,15 +155,22 @@ export class CameraTracker {
   private generation = 0;
   private lastVideoTime = -1;
   private lastFreshFrame = 0;
+  private readonly debugEyeMarkers: boolean;
   readonly video = document.createElement('video');
 
   private readonly onFrame: (frame: TrackingFrame) => void;
   private readonly onError: (error: Error) => void;
 
-  constructor(onFrame: (frame: TrackingFrame) => void, onError: (error: Error) => void) {
+  constructor(
+    onFrame: (frame: TrackingFrame) => void,
+    onError: (error: Error) => void,
+    debugEyeMarkers = false,
+  ) {
     this.onFrame = onFrame;
 
     this.onError = onError;
+
+    this.debugEyeMarkers = debugEyeMarkers;
 
     this.video.autoplay = true;
 
@@ -252,6 +300,7 @@ export class CameraTracker {
       let features: number[] | null = null;
       let bounds: FaceBounds | null = null;
       let faceCount = 0;
+      let markers: EyeMarkers | null = null;
 
       if (this.video.readyState >= 2 && this.video.currentTime !== this.lastVideoTime) {
         this.lastVideoTime = this.video.currentTime;
@@ -263,16 +312,26 @@ export class CameraTracker {
         faceCount = result.faceLandmarks.length;
 
         if (faceCount === 1) {
-          bounds = faceBounds(result.faceLandmarks[0]);
+          const points = result.faceLandmarks[0];
 
-          features = extractFeatures(result.faceLandmarks[0]);
+          bounds = faceBounds(points);
+
+          features = extractFeatures(points);
+
+          if (this.debugEyeMarkers) markers = eyeMarkers(points);
         }
       }
 
       if (time - this.lastFreshFrame > 1500)
         throw new Error('A imagem da câmara parou. Ative o olhar novamente.');
 
-      this.onFrame({ faceBounds: bounds, faceCount, features, time });
+      this.onFrame({
+        faceBounds: bounds,
+        faceCount,
+        features,
+        ...(markers ? { eyeMarkers: markers } : {}),
+        time,
+      });
     } catch (error) {
       this.stop();
 

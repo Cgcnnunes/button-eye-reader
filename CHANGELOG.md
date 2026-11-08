@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- Add opt-in production eye/iris markers and per-target validation diagnostics, enabled only by
+  `x-test-production: true` on the initial HTML request.
+
 ## 0.3.0
 
 - Add full-screen camera calibration with face-position guidance, eye-follow targets and a caregiver

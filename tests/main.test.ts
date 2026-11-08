@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TrackingFrame } from '../src/gaze';
+import type { EyeMarkers, TrackingFrame } from '../src/gaze';
 import { defaultBoard, parseBoard, STORAGE_KEY } from '../src/store';
 
 const mocks = vi.hoisted(() => ({
@@ -428,6 +428,10 @@ describe('phrase board and gaze UI regression', () => {
 
     expect(text('notice')).toContain('não foi suficientemente precisa');
 
+    expect(text('notice')).toContain('Diagnóstico local');
+
+    expect(text('notice')).toMatch(/alvo 1 \(n=\d+\): X \d+%, Y \d+%, ambos \d+%/);
+
     expect(text('tracking')).toBe('Olhar desligado');
   });
 
@@ -525,6 +529,45 @@ describe('phrase board and gaze UI regression', () => {
     expect(localStorage.getItem('button-eye-reader.face-width.v1')).toBe('0.28');
 
     expect(text('calibration-info')).toContain('Calibração 1/9');
+  });
+
+  it('draws local eye and iris markers over the mirrored camera view', async () => {
+    await load();
+
+    expect(document.getElementById('eye-debug-overlay')).not.toBeNull();
+
+    await start();
+
+    const eyeMarkers: EyeMarkers = {
+      leftEye: { bottom: 0.45, left: 0.4, right: 0.48, top: 0.39 },
+      leftIris: { bottom: 0.43, left: 0.43, right: 0.45, top: 0.41 },
+      rightEye: { bottom: 0.45, left: 0.52, right: 0.6, top: 0.39 },
+      rightIris: { bottom: 0.43, left: 0.55, right: 0.57, top: 0.41 },
+    };
+
+    mocks.frame({
+      eyeMarkers,
+      faceBounds: { bottom: 0.66, left: 0.36, right: 0.64, top: 0.3 },
+      faceCount: 1,
+      features: [0.5],
+      time: performance.now(),
+    });
+
+    expect(document.getElementById('eye-debug-overlay')?.getAttribute('style')).toContain(
+      'display: block',
+    );
+
+    expect(Number(document.getElementById('eye-debug-left-eye')?.getAttribute('cx'))).toBeCloseTo(
+      560,
+    );
+
+    expect(Number(document.getElementById('eye-debug-right-eye')?.getAttribute('cx'))).toBeCloseTo(
+      440,
+    );
+
+    expect(Number(document.getElementById('eye-debug-left-iris')?.getAttribute('rx'))).toBeCloseTo(
+      10,
+    );
   });
 
   it('pauses gaze and shows local camera guidance when face position is lost', async () => {
