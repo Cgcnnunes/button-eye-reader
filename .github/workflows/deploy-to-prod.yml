@@ -60,24 +60,37 @@ jobs:
       DEPLOYMENT_URL: ${{ vars.DEPLOYMENT_URL }}
       WRANGLER_SEND_METRICS: 'false'
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ needs.validate.outputs.sha }}
-      - uses: actions/setup-node@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
           cache: npm
-      - run: npm ci --ignore-scripts
-      - run: node scripts/deployment.ts download
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Download deployment artifacts
+        run: node scripts/deployment.ts download
         env:
           EXPECTED_ARTIFACT: ${{ needs.validate.outputs.artifact }}
           EXPECTED_DIGEST: ${{ needs.validate.outputs.digest }}
           EXPECTED_SHA: ${{ needs.validate.outputs.sha }}
-      - run: npx wrangler deploy --env production
+
+      - name: Deploy to PROD
+        run: npx wrangler deploy --env production
         env:
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/production-deploy.jsonl
-      - run: node scripts/deployment.ts smoke production
+
+      - name: Smoke test deployment
+        run: node scripts/deployment.ts smoke production
         env:
           DEPLOYMENT_OUTPUT: ${{ runner.temp }}/production-deploy.jsonl
-      - run: node scripts/deployment.ts promote
+
+      - name: Promote deployment
+        run: node scripts/deployment.ts promote

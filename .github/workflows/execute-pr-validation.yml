@@ -1,31 +1,38 @@
 name: Execute PR Validation
 
 on:
-  push:
-    branches: [main]
   pull_request:
+    branches: [main]
     types: [opened, synchronize, reopened, edited, ready_for_review]
 
 permissions:
   contents: read
 
 concurrency:
-  group: pr-validation-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: pr-validation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-node@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
           cache: npm
-      - run: npm ci
-      - if: github.event_name == 'pull_request'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run repository checks
         run: npm run repo:check
-      - run: npm run verify
+
+      - name: Validate code and build
+        run: npm run verify

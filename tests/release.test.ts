@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({
   git: vi.fn<(...args: string[]) => string>(),
   previousStable: vi.fn(),
   read: vi.fn(),
-  validation: vi.fn(),
   write: vi.fn(),
 }));
 
@@ -33,7 +32,6 @@ vi.mock('../scripts/deployment.ts', () => ({
 
     return value;
   },
-  successfulValidation: mocks.validation,
 }));
 
 const sha = 'a'.repeat(40);
@@ -129,8 +127,6 @@ describe('TEST prerelease creation and retry orchestration', () => {
       return '';
     });
 
-    mocks.validation.mockResolvedValue(undefined);
-
     mocks.previousStable.mockResolvedValue('v0.1.0');
 
     mocks.api.mockImplementation((path: string) =>
@@ -146,8 +142,6 @@ describe('TEST prerelease creation and retry orchestration', () => {
 
   it('prepares the release marker without creating a tag or prerelease', async () => {
     await run('prepare');
-
-    expect(mocks.validation).toHaveBeenCalledWith(sha, true);
 
     expect(mocks.write).toHaveBeenCalledWith(
       'dist/release.json',
@@ -185,10 +179,24 @@ describe('TEST prerelease creation and retry orchestration', () => {
     expect(JSON.stringify(mocks.api.mock.calls)).toContain('<!-- tested-deployment');
   });
 
-  it('does not create tags or releases if main validation or deployment output fails', async () => {
-    mocks.validation.mockRejectedValue(new Error('Main validation failed'));
+  it('does not create tags or releases if deployment output is invalid', async () => {
+    mocks.read.mockImplementation((path: string) => {
+      if (path === 'event.json') {
+        return JSON.stringify(event);
+      }
 
-    await expect(run('publish')).rejects.toThrow('Main validation failed');
+      if (path === 'package.json') {
+        return JSON.stringify({ version: '0.2.0' });
+      }
+
+      if (path === 'package-lock.json') {
+        return JSON.stringify({ packages: { '': { version: '0.2.0' } }, version: '0.2.0' });
+      }
+
+      return '';
+    });
+
+    await expect(run('publish')).rejects.toThrow('deploy record');
 
     expect(mocks.git.mock.calls.some((args) => args[0] === 'push')).toBe(false);
   });

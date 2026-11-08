@@ -1,5 +1,5 @@
 import { ESLint } from 'eslint';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -12,11 +12,9 @@ describe('mandatory lint and hook configuration', () => {
       'utf8',
     );
 
-    expect(validation).toContain(
-      'group: pr-validation-${{ github.event.pull_request.number || github.sha }}',
-    );
+    expect(validation).toContain('group: pr-validation-${{ github.event.pull_request.number }}');
 
-    expect(validation).toContain("cancel-in-progress: ${{ github.event_name == 'pull_request' }}");
+    expect(validation).toContain('cancel-in-progress: true');
 
     for (const [file, group] of [
       ['deploy-to-test.yml', 'deploy-test'],
@@ -33,6 +31,41 @@ describe('mandatory lint and hook configuration', () => {
 
       expect(workflow).toContain('queue: max');
     }
+  });
+
+  it('keeps exactly three workflows and validates code independently in PR and TEST', () => {
+    expect(readdirSync(new URL('../.github/workflows/', import.meta.url)).sort()).toEqual([
+      'deploy-to-prod.yml',
+      'deploy-to-test.yml',
+      'execute-pr-validation.yml',
+    ]);
+
+    const validation = readFileSync(
+      new URL('../.github/workflows/execute-pr-validation.yml', import.meta.url),
+      'utf8',
+    );
+    const test = readFileSync(
+      new URL('../.github/workflows/deploy-to-test.yml', import.meta.url),
+      'utf8',
+    );
+
+    expect(validation).not.toMatch(/^\s+push:/m);
+
+    expect(validation).toContain('run: npm run repo:check');
+
+    for (const workflow of [validation, test]) {
+      expect(workflow).toContain('run: npm ci');
+
+      expect(workflow).toContain('run: npm run verify');
+
+      expect(workflow.indexOf('run: npm ci')).toBeLessThan(workflow.indexOf('run: npm run verify'));
+    }
+
+    expect(test).not.toContain('npm run repo:check');
+
+    expect(test).not.toContain('workflow_run:');
+
+    expect(test).not.toContain('needs:');
   });
 
   it('enforces types, sorting, quote style and statement spacing', async () => {

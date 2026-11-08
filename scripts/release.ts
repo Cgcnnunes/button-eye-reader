@@ -1,6 +1,6 @@
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { deploymentRecord, integer, object, parseProof, text } from './deployment-policy.ts';
-import { api, previousStable, required, successfulValidation } from './deployment.ts';
+import { api, previousStable, required } from './deployment.ts';
 import { git, lines } from './git.ts';
 import {
   assertDocumentation,
@@ -93,8 +93,6 @@ if (command === 'prepare') {
 
   required('CLOUDFLARE_API_TOKEN');
 
-  await successfulValidation(sha, true);
-
   if (exists) {
     const existing = await api(`/releases/tags/${tag}`);
 
@@ -111,8 +109,6 @@ if (command === 'prepare') {
 
   console.log(`Prepared ${tag} at ${sha} for TEST; no tag or release created.`);
 } else {
-  await successfulValidation(sha);
-
   const deployment = deploymentRecord(readFileSync(required('DEPLOYMENT_OUTPUT'), 'utf8'), 'test');
   const proof = {
     artifact: integer(Number(required('ARTIFACT_ID'))),

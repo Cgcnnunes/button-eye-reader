@@ -26,24 +26,39 @@ jobs:
       DEPLOYMENT_URL: ${{ vars.DEPLOYMENT_URL }}
       WRANGLER_SEND_METRICS: 'false'
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.merge_commit_sha }}
-      - uses: actions/setup-node@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
           cache: npm
-      - run: npm ci
-      - run: npm run verify
-      - run: node scripts/release.ts prepare
-      - run: npx wrangler deploy --env test
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate code and build
+        run: npm run verify
+
+      - name: Prepare release
+        run: node scripts/release.ts prepare
+
+      - name: Deploy to TEST
+        run: npx wrangler deploy --env test
         env:
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/test-deploy.jsonl
-      - run: node scripts/deployment.ts smoke test
+
+      - name: Smoke test deployment
+        run: node scripts/deployment.ts smoke test
         env:
           DEPLOYMENT_OUTPUT: ${{ runner.temp }}/test-deploy.jsonl
-      - uses: actions/upload-artifact@v4
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         id: artifact
         with:
           name: tested-site-${{ github.run_id }}-${{ github.run_attempt }}
@@ -51,7 +66,9 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 90
-      - run: node scripts/release.ts publish
+
+      - name: Publish release
+        run: node scripts/release.ts publish
         env:
           ARTIFACT_ID: ${{ steps.artifact.outputs.artifact-id }}
           ARTIFACT_DIGEST: ${{ steps.artifact.outputs.artifact-digest }}

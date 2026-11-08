@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- Keep PR validation scoped to PRs and independently verify merged code inside TEST deployment.
+- Remove polling of a separate main validation run from TEST release and PROD promotion.
+- Preserve successful TEST provenance checks, exact artifact promotion and all three workflows.
+
 - Superseded PR validation cancellation and separate TEST/PROD deployment queues with up to 100
   waiting runs per environment.
 - Separate TEST Worker deployment after validated squash merges; same-tag GitHub prereleases with
