@@ -54,17 +54,18 @@ safeguards reduce errors, not eliminate them.
 | Required contributor process                | [CONTRIBUTING.md](CONTRIBUTING.md)                                            |
 
 GitHub workflows own build/deploy commands and release promotion; GitHub Environments own secrets,
-URLs and approvals. Wrangler defines the two Worker names and static assets. Create both Workers
-without a GitHub Workers Builds connection. Follow [DEPLOYMENT.md](DEPLOYMENT.md) for fresh setup or
-changing deployment settings. Reload the dashboard to verify persistence and check the new build's
-branch/commit before declaring deployment successful. `release.json` identifies the deployed
-SHA/tag. PR and TEST independently run the shared `npm run verify` command; PR validation runs only
-on PR events. TEST does not depend on a separate validation run. PROD checks the exact successful
-TEST workflow attempt (including verification) and immutable artifact ZIP digest, without
-recompiling. TEST/PROD use different origins, so phrase storage is independent. Public smoke tests
-verify exact asset bytes and headers, not physical-device acceptance. Failure after a Cloudflare
-deployment can leave that version live even if the GitHub release update fails; there is no
-cross-provider transaction.
+URLs and approvals. Merged-PR provenance distinguishes feature-run metadata from the deployed squash
+SHA and verifies the PR association through GitHub before promotion. Wrangler defines the two Worker
+names and static assets. Create both Workers without a GitHub Workers Builds connection. Follow
+[DEPLOYMENT.md](DEPLOYMENT.md) for fresh setup or changing deployment settings. Reload the dashboard
+to verify persistence and check the new build's branch/commit before declaring deployment
+successful. `release.json` identifies the deployed SHA/tag. PR and TEST independently run the shared
+`npm run verify` command; PR validation runs only on PR events. TEST does not depend on a separate
+validation run. PROD checks the exact successful TEST workflow attempt (including verification) and
+immutable artifact ZIP digest, without recompiling. TEST/PROD use different origins, so phrase
+storage is independent. Public smoke tests verify exact asset bytes and headers, not physical-device
+acceptance. Failure after a Cloudflare deployment can leave that version live even if the GitHub
+release update fails; there is no cross-provider transaction.
 
 The storage schema's `version: 1` is **not** the application semantic version. Do not bump the
 storage schema just because an app release changes.

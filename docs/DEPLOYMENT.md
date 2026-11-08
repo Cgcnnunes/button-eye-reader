@@ -181,6 +181,19 @@ prerelease.
 
 ## 6. Troubleshooting
 
+Workflows use `actions/checkout@v5` and `actions/setup-node@v5` (Node 24 action runtime), while
+application tooling still uses `.nvmrc`. Runners are pinned to `ubuntu-24.04` to avoid changes to
+the `ubuntu-latest` image. These are separate from the application's Node version.
+
+Release validation accepts the PR title with or without GitHub's exact ` (#<PR-number>)` squash
+suffix. A different suffix/title is rejected. Merged-PR workflow and artifact metadata identifies
+the feature branch/head SHA, not the checked-out squash SHA. Provenance records both and PROD
+verifies the merged PR through GitHub, linking its feature SHA to the exact tagged squash commit. An
+old workflow rerun uses its original code; merge this fix and test the new run instead.
+
+If TEST credentials are empty, configure `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` and
+`DEPLOYMENT_URL` in the `test` GitHub environment. Repository changes cannot supply missing secrets.
+
 Read **GitHub Actions logs** for validation, installation, build and deployment. Browser-console
 warnings from the Cloudflare dashboard are not necessarily application failures.
 

@@ -54,6 +54,12 @@ describe('mandatory lint and hook configuration', () => {
     expect(validation).toContain('run: npm run repo:check');
 
     for (const workflow of [validation, test]) {
+      expect(workflow).toContain('runs-on: ubuntu-24.04');
+
+      expect(workflow).toContain('actions/checkout@v5');
+
+      expect(workflow).toContain('actions/setup-node@v5');
+
       expect(workflow).toContain('run: npm ci');
 
       expect(workflow).toContain('run: npm run verify');

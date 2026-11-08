@@ -40,7 +40,7 @@ const event = {
   pull_request: {
     base: { ref: 'main' },
     body: '- [ ] major\n- [x] minor\n- [ ] patch',
-    head: { ref: 'reader-00002' },
+    head: { ref: 'reader-00002', sha: 'c'.repeat(40) },
     merge_commit_sha: sha,
     merged: true,
     number: 2,
@@ -77,6 +77,7 @@ describe('TEST prerelease creation and retry orchestration', () => {
       CLOUDFLARE_ACCOUNT_ID: 'account',
       CLOUDFLARE_API_TOKEN: 'test-token',
       DEPLOYMENT_OUTPUT: 'deploy.jsonl',
+      DEPLOYMENT_URL: 'https://button-eye-reader-test.example.workers.dev',
       GITHUB_EVENT_PATH: 'event.json',
       GITHUB_REPOSITORY: 'example/reader',
       GITHUB_RUN_ATTEMPT: '1',
@@ -169,14 +170,44 @@ describe('TEST prerelease creation and retry orchestration', () => {
     expect(mocks.api).toHaveBeenCalledWith(
       '/releases',
       'POST',
-      expect.objectContaining({
-        make_latest: 'false',
-        prerelease: true,
-        tag_name: 'v0.2.0',
-      }),
+      expect.objectContaining({ make_latest: 'false', prerelease: true, tag_name: 'v0.2.0' }),
     );
 
     expect(JSON.stringify(mocks.api.mock.calls)).toContain('<!-- tested-deployment');
+  });
+
+  it('accepts only the exact GitHub squash PR-number suffix', async () => {
+    const original = mocks.git.getMockImplementation();
+
+    if (!original) {
+      throw new Error('Missing Git fixture implementation.');
+    }
+
+    mocks.git.mockImplementation((...args: string[]) =>
+      args[0] === 'show' && args.includes('--format=%s')
+        ? `${event.pull_request.title} (#2)`
+        : original(...args),
+    );
+
+    await run('prepare');
+
+    expect(mocks.write).toHaveBeenCalled();
+  });
+
+  it('rejects a squash suffix for a different PR', async () => {
+    const original = mocks.git.getMockImplementation();
+
+    if (!original) {
+      throw new Error('Missing Git fixture implementation.');
+    }
+
+    mocks.git.mockImplementation((...args: string[]) =>
+      args[0] === 'show' && args.includes('--format=%s')
+        ? `${event.pull_request.title} (#99)`
+        : original(...args),
+    );
+
+    await expect(run('prepare')).rejects.toThrow('exact GitHub PR-number');
   });
 
   it('does not create tags or releases if deployment output is invalid', async () => {

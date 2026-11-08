@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertEvidence,
+  assertMergedPullRequest,
   deploymentRecord,
   deploymentUrl,
   integer,
@@ -14,7 +15,10 @@ const sha = 'a'.repeat(40);
 const proof = {
   artifact: 12,
   attempt: 1,
+  branch: 'reader-00003',
   digest: `sha256:${'b'.repeat(64)}`,
+  head: 'c'.repeat(40),
+  pr: 3,
   run: 34,
   sha,
   url: 'https://button-eye-reader-test.example.workers.dev',
@@ -32,8 +36,8 @@ const release = {
 const run = {
   conclusion: 'success',
   event: 'pull_request',
-  head_branch: 'main',
-  head_sha: sha,
+  head_branch: proof.branch,
+  head_sha: proof.head,
   id: proof.run,
   path: '.github/workflows/deploy-to-test.yml',
   run_attempt: proof.attempt,
@@ -44,7 +48,7 @@ const artifact = {
   expired: false,
   id: proof.artifact,
   name: 'tested-site-34-1',
-  workflow_run: { head_sha: sha, id: proof.run },
+  workflow_run: { head_sha: proof.head, id: proof.run },
 };
 const record = {
   targets: [proof.url],
@@ -56,6 +60,34 @@ const record = {
 };
 
 describe('deployment provenance and exact-tag promotion policy', () => {
+  it('ties feature-run metadata to the actual merged PR and squash commit', () => {
+    const pr = {
+      base: { ref: 'main', repo: { full_name: 'example/reader' } },
+      head: { ref: proof.branch, repo: { full_name: 'example/reader' }, sha: proof.head },
+      merge_commit_sha: sha,
+      merged: true,
+      number: 3,
+    };
+
+    expect(() => {
+      assertMergedPullRequest(pr, proof);
+    }).not.toThrow();
+
+    for (const change of [
+      { merged: false },
+      { merge_commit_sha: proof.head },
+      { number: 4 },
+      { base: { ...pr.base, ref: 'other' } },
+      { head: { ...pr.head, sha } },
+      { head: { ...pr.head, ref: 'reader-00004' } },
+      { head: { ...pr.head, repo: { full_name: 'other/reader' } } },
+    ]) {
+      expect(() => {
+        assertMergedPullRequest({ ...pr, ...change }, proof);
+      }).toThrow();
+    }
+  });
+
   it('accepts only the successful TEST attempt and its immutable artifact', () => {
     expect(assertEvidence('v0.1.1', sha, release, run, artifact)).toEqual(proof);
   });
@@ -131,7 +163,7 @@ describe('deployment provenance and exact-tag promotion policy', () => {
     { conclusion: 'failure' },
     { event: 'push' },
     { head_branch: 'reader-00002' },
-    { head_sha: 'c'.repeat(40) },
+    { head_sha: 'd'.repeat(40) },
     { id: 99 },
     { path: '.github/workflows/execute-pr-validation.yml' },
     { run_attempt: 2 },
@@ -146,7 +178,7 @@ describe('deployment provenance and exact-tag promotion policy', () => {
     { id: 99 },
     { name: 'other' },
     { workflow_run: { head_sha: sha, id: 99 } },
-    { workflow_run: { head_sha: 'c'.repeat(40), id: proof.run } },
+    { workflow_run: { head_sha: 'd'.repeat(40), id: proof.run } },
   ])('rejects replaced or expired TEST artifacts %j', (change) => {
     expect(() => assertEvidence('v0.1.1', sha, release, run, { ...artifact, ...change })).toThrow();
   });

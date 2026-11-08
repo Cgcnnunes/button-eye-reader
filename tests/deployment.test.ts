@@ -27,7 +27,10 @@ const archive = Buffer.from('Immutable zip fixture');
 const proof = {
   artifact: 12,
   attempt: 1,
+  branch: 'reader-00003',
   digest: `sha256:${createHash('sha256').update(archive).digest('hex')}`,
+  head: 'c'.repeat(40),
+  pr: 3,
   run: 34,
   sha,
   url: 'https://button-eye-reader-test.example.workers.dev',
@@ -45,8 +48,8 @@ const release = {
 const run = {
   conclusion: 'success',
   event: 'pull_request',
-  head_branch: 'main',
-  head_sha: sha,
+  head_branch: proof.branch,
+  head_sha: proof.head,
   id: proof.run,
   path: '.github/workflows/deploy-to-test.yml',
   run_attempt: proof.attempt,
@@ -57,11 +60,21 @@ const artifact = {
   expired: false,
   id: proof.artifact,
   name: 'tested-site-34-1',
-  workflow_run: { head_sha: sha, id: proof.run },
+  workflow_run: { head_sha: proof.head, id: proof.run },
 };
 const marker = `${JSON.stringify({ sha, tag: 'v0.1.1' })}\n`;
 
 function reply(path: string): Response {
+  if (path.endsWith('/pulls/3')) {
+    return Response.json({
+      base: { ref: 'main', repo: { full_name: 'example/reader' } },
+      head: { ref: proof.branch, repo: { full_name: 'example/reader' }, sha: proof.head },
+      merge_commit_sha: sha,
+      merged: true,
+      number: 3,
+    });
+  }
+
   if (path.includes('/releases/tags/')) {
     return Response.json(release);
   }

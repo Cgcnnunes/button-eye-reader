@@ -59,7 +59,8 @@ order follows entry into the concurrency group, not guaranteed merge/dispatch or
 `deploy-to-test.yml` handles a **merged PR to main**, checks out its squash SHA, runs full
 verification inside that workflow without waiting for a separate validation workflow, then:
 
-- verifies a one-parent squash commit whose subject exactly equals the PR title;
+- verifies a one-parent squash commit whose subject equals the PR title, optionally followed by
+  GitHub's exact ` (#<PR-number>)` suffix; other title changes are rejected;
 - checks documentation changed and the selected semantic version;
 - deploys only `button-eye-reader-test` and verifies public assets, marker and headers;
 - stores the exact static build as an immutable Actions artifact with 90-day retention;

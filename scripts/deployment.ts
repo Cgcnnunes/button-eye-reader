@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import type { DeploymentProof } from './deployment-policy.ts';
 import {
   assertEvidence,
+  assertMergedPullRequest,
   deploymentRecord,
   deploymentUrl,
   integer,
@@ -18,6 +19,12 @@ import { git } from './git.ts';
 import { assertLockVersion, latestVersion } from './policy.ts';
 
 export function required(name: string): string {
+  if (!process.env[name]) {
+    throw new Error(
+      `Missing required environment setting: ${name}. Configure the GitHub environment.`,
+    );
+  }
+
   return text(process.env[name]);
 }
 
@@ -102,6 +109,8 @@ export async function validate(): Promise<{
   const artifact = await api(`/actions/artifacts/${proof.artifact}`);
 
   assertEvidence(tag, sha, release, run, artifact);
+
+  assertMergedPullRequest(await api(`/pulls/${proof.pr}`), proof);
 
   const pkg = object(JSON.parse(git('show', `${sha}:package.json`)) as unknown);
 
