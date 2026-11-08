@@ -1,67 +1,21 @@
-import { readFileSync } from 'node:fs';
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { EyeMarkers, TrackingFrame } from '../src/gaze';
-import { isDiagnosticReport } from '../src/diagnostics';
 import { defaultBoard, parseBoard, STORAGE_KEY } from '../src/store';
 
 const mocks = vi.hoisted(() => ({
   changed: vi.fn<(busy: boolean) => void>(),
-  debug: vi.fn<(enabled: boolean) => void>(),
-  error: vi.fn<(error: Error) => void>(),
-  frame: vi.fn<(frame: TrackingFrame) => void>(),
-  listVideoInputs: vi.fn<() => Promise<MediaDeviceInfo[]>>(),
   notify: vi.fn<(message: string) => void>(),
   speak: vi.fn<(text: string) => void>(),
-  start: vi.fn<(deviceId?: string) => Promise<void>>(),
+  speaking: false,
   stop: vi.fn<() => void>(),
-  videoDeviceId: '',
 }));
-
-vi.mock(import('../src/gaze'), async (importOriginal) => {
-  const actual = await importOriginal();
-
-  class MockCameraTracker extends actual.CameraTracker {
-    constructor(
-      frame: (frame: TrackingFrame) => void,
-      error: (error: Error) => void,
-      debugEyeMarkers = false,
-    ) {
-      super(frame, error, debugEyeMarkers);
-
-      mocks.debug(debugEyeMarkers);
-
-      mocks.frame.mockImplementation(frame);
-
-      mocks.error.mockImplementation(error);
-    }
-
-    override async start(deviceId?: string): Promise<void> {
-      await mocks.start(deviceId);
-    }
-
-    override async listVideoInputs(): Promise<MediaDeviceInfo[]> {
-      return mocks.listVideoInputs();
-    }
-
-    override get videoDeviceId(): string {
-      return mocks.videoDeviceId;
-    }
-
-    override stop(): void {
-      mocks.stop();
-    }
-  }
-
-  return {
-    ...actual,
-    CameraTracker: MockCameraTracker,
-  };
-});
 
 vi.mock('../src/speech', () => ({
   Speaker: class {
-    speaking = false;
+    get speaking(): boolean {
+      return mocks.speaking;
+    }
 
     constructor(notify: (message: string) => void, changed: (busy: boolean) => void) {
       mocks.notify.mockImplementation(notify);
@@ -72,8 +26,9 @@ vi.mock('../src/speech', () => ({
     speak(text: string): void {
       mocks.speak(text);
     }
-
     stop(): void {
+      mocks.stop();
+
       mocks.changed(false);
     }
   },
@@ -93,9 +48,7 @@ function button(action: string): HTMLButtonElement {
     document.querySelector<HTMLButtonElement>(`[data-action="${action}"]`) ??
     document.getElementById(action);
 
-  if (!(found instanceof HTMLButtonElement)) {
-    throw new Error(`Missing test button ${action}`);
-  }
+  if (!(found instanceof HTMLButtonElement)) throw new Error(`Missing test button ${action}`);
 
   return found;
 }
@@ -108,80 +61,23 @@ async function load(): Promise<void> {
   await import('../src/main');
 }
 
-async function start(): Promise<void> {
-  button('eye-toggle').click();
+function submit(value: string): void {
+  const input = document.querySelector('textarea');
 
-  await vi.waitFor(() => {
-    expect(document.getElementById('calibration')?.hidden).toBe(false);
-  });
+  if (!input) throw new Error('Missing textarea');
+
+  input.value = value;
+
+  document.querySelector('form')?.dispatchEvent(new Event('submit', { cancelable: true }));
 }
 
-function emit(features: number[] | null): void {
-  vi.advanceTimersByTime(80);
-
-  mocks.frame({
-    faceBounds: { bottom: 0.66, left: 0.36, right: 0.64, top: 0.3 },
-    faceCount: 1,
-    features,
-    time: performance.now(),
-  });
-}
-
-function calibrate(staticSignal = false): void {
-  const firstTarget = document.getElementById('calibration-target');
-
-  if (!firstTarget) throw new Error('Missing calibration target');
-
-  emit(staticSignal ? [0.5, 0.5] : [0.15, 0.18]);
-
-  button('calibration-set-distance').click();
-
-  let frames = 0;
-
-  while (!document.getElementById('calibration')?.hidden && frames < 600) {
-    const target = document.getElementById('calibration-target');
-
-    if (!target) {
-      throw new Error('Missing calibration target');
-    }
-
-    emit(
-      staticSignal
-        ? [0.5, 0.5]
-        : [Number.parseFloat(target.style.left) / 100, Number.parseFloat(target.style.top) / 100],
-    );
-
-    frames++;
-  }
-}
-
-function look(action: string, count = 35): void {
-  const rect = button(action).getBoundingClientRect();
-
-  for (let i = 0; i < count; i++) {
-    emit([(rect.left + rect.width / 2) / innerWidth, (rect.top + rect.height / 2) / innerHeight]);
-  }
-}
-
-function away(): void {
-  for (let i = 0; i < 15; i++) {
-    emit([0.5, 0.5]);
-  }
-}
-
-describe('phrase board and gaze UI regression', () => {
+describe('standard accessible phrase board', () => {
   beforeEach(() => {
     vi.resetModules();
 
-    vi.useFakeTimers();
-
     vi.clearAllMocks();
 
-    mocks.start.mockResolvedValue(undefined);
-
-    mocks.listVideoInputs.mockResolvedValue([]);
-
-    mocks.videoDeviceId = '';
+    mocks.speaking = false;
 
     document.body.innerHTML = '<div id="app"></div>';
 
@@ -205,23 +101,6 @@ describe('phrase board and gaze UI regression', () => {
 
       windowAdd(name, listener, options);
     });
-
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
-      this: HTMLElement,
-    ): DOMRect {
-      const index = [...(this.parentElement?.children ?? [])].indexOf(this);
-      const control = this.classList.contains('control-button');
-      const columns = control && this.parentElement?.classList.contains('three-controls') ? 3 : 2;
-      const width = columns === 3 ? 350 : 540;
-      const x = 30 + (index % columns) * (width + 40);
-      const y = control ? 630 : 150 + Math.floor(index / 2) * 240;
-
-      return new DOMRect(x, y, width, control ? 100 : 200);
-    });
-
-    vi.stubGlobal('innerWidth', 1180);
-
-    vi.stubGlobal('innerHeight', 820);
   });
 
   afterEach(() => {
@@ -236,127 +115,64 @@ describe('phrase board and gaze UI regression', () => {
     vi.restoreAllMocks();
 
     vi.unstubAllGlobals();
-
-    vi.unstubAllEnvs();
-
-    delete document.documentElement.dataset.eyeDebug;
-
-    vi.useRealTimers();
   });
 
-  it('enables diagnostics in the shipped HTML without a production request header', async () => {
-    const html = readFileSync('index.html', 'utf8');
-    const page = new DOMParser().parseFromString(html, 'text/html');
+  it('has four native speaking buttons and no camera, calibration, diagnostics or custom gaze hook', async () => {
+    const camera = vi.fn();
 
-    expect(page.documentElement.dataset.eyeDebug).toBe('true');
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: camera } });
 
-    document.documentElement.dataset.eyeDebug = page.documentElement.dataset.eyeDebug;
-
-    vi.stubEnv('DEV', false);
-
-    await load();
-
-    expect(document.getElementById('eye-debug-overlay')).not.toBeNull();
-
-    expect(mocks.debug).toHaveBeenCalledWith(true);
-
-    await start();
-
-    calibrate(true);
-
-    expect(text('notice')).toContain('não foi suficientemente precisa');
-
-    expect(text('notice')).toContain('Diagnóstico local');
-  });
-
-  it('keeps exactly four speaking targets and a caregiver-only writing control', async () => {
     await load();
 
     expect(document.querySelectorAll('.phrase-button')).toHaveLength(4);
 
-    expect(button('add').hasAttribute('data-gaze')).toBe(false);
+    expect(
+      document.querySelector('video, canvas, [data-gaze], #calibration, #diagnostics, #eye-toggle'),
+    ).toBeNull();
 
-    expect(button('catalogue').hasAttribute('data-gaze')).toBe(true);
+    expect(camera).not.toHaveBeenCalled();
 
-    expect(document.getElementById('camera-guide')?.hidden).toBe(true);
+    expect(readFileSync('index.html', 'utf8')).not.toContain('data-eye-debug');
 
-    expect(document.querySelector('#camera-view video')).not.toBeNull();
+    expect(text('screen-hint')).toContain('Controlo ocular do iPad');
 
-    button('speak:2').click();
+    expect(button('add').textContent).toContain('Para quem acompanha');
+
+    expect(document.querySelector('footer')?.textContent).toContain('v0.1.0-test');
+
+    for (let index = 0; index < 4; index++) {
+      expect(button(`speak:${index}`).type).toBe('button');
+
+      button(`speak:${index}`).click();
+
+      expect(mocks.speak).toHaveBeenLastCalledWith(defaultBoard().phrases[index].text);
+    }
+  });
+
+  it('supports pointer-style click activation without app calibration or dwell timers', async () => {
+    await load();
+
+    mocks.speaking = true;
+
+    button('speak:2').dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
     expect(mocks.speak).toHaveBeenCalledWith('Quero água');
 
-    expect(text('screen-title')).toBe('O que quer dizer?');
+    expect(text('spoken')).toContain('A dizer:');
 
-    expect(document.querySelector('footer')?.textContent).toContain('v0.1.0-test');
-  });
+    mocks.changed(true);
 
-  it('collects one opted-in calibration report without changing acceptance or uploading', async () => {
-    await load();
+    mocks.changed(false);
 
-    expect(button('diagnostics').hasAttribute('data-gaze')).toBe(false);
+    expect(text('spoken')).toBe('Pronto para a próxima frase.');
 
-    button('diagnostics').click();
+    button('sound').click();
 
-    button('eye-toggle').click();
+    expect(mocks.speak).toHaveBeenLastCalledWith('Olá. Esta é a minha voz.');
 
-    expect(text('notice')).toContain('Feche o diagnóstico');
+    mocks.notify('Falha de voz');
 
-    button('diagnostic-enable').click();
-
-    button('diagnostic-close').click();
-
-    await start();
-
-    calibrate(true);
-
-    expect(text('tracking')).toBe('Olhar desligado');
-
-    expect(text('diagnostic-state')).toContain('não enviado');
-
-    const report: unknown = JSON.parse(text('diagnostic-preview'));
-
-    expect(isDiagnosticReport(report)).toBe(true);
-
-    if (!isDiagnosticReport(report)) throw new Error('Expected numerical report.');
-
-    expect(report.outcome).toBe('failed');
-
-    expect(report.points).toHaveLength(13);
-
-    expect(report.points[9].errors?.bothWithin).toBe(0);
-
-    expect(button('diagnostic-upload').disabled).toBe(false);
-
-    button('diagnostics').click();
-
-    button('diagnostic-discard').click();
-
-    expect(text('diagnostic-preview')).toBe('');
-
-    expect(button('diagnostic-upload').disabled).toBe(true);
-  });
-
-  it('leaves diagnostics off by default and captures opted-in cancellation', async () => {
-    await load();
-
-    await start();
-
-    calibrate();
-
-    expect(text('diagnostic-preview')).toBe('');
-
-    button('diagnostics').click();
-
-    button('diagnostic-enable').click();
-
-    button('diagnostic-close').click();
-
-    await start();
-
-    button('cancel-calibration').click();
-
-    expect(text('diagnostic-preview')).toContain('"outcome": "cancelled"');
+    expect(text('notice')).toBe('Falha de voz');
   });
 
   it('pages the catalogue, cancels changes and persists a replacement', async () => {
@@ -366,11 +182,15 @@ describe('phrase board and gaze UI regression', () => {
 
     expect(button('previous').disabled).toBe(true);
 
+    button('previous').click();
+
     button('next').click();
 
     button('previous').click();
 
     button('choose:template-1').click();
+
+    expect(button('replace:0').getAttribute('aria-label')).toContain('Substituir');
 
     button('catalogue').click();
 
@@ -391,28 +211,40 @@ describe('phrase board and gaze UI regression', () => {
     expect(parseBoard(localStorage.getItem(STORAGE_KEY) ?? '').slots[0]).toBe('template-4');
 
     expect(text('spoken')).toContain('Botão atualizado');
+
+    button('catalogue').click();
+
+    while (!button('next').disabled) button('next').click();
+
+    expect(text('screen-hint')).toContain('página 7 de 7');
+
+    button('next').click();
+
+    expect(text('screen-hint')).toContain('página 7 de 7');
   });
 
-  it('adds literal text, rejects duplicate phrases and never inserts user markup', async () => {
+  it('keeps writing caregiver-labelled and does not claim to disable system Eye Tracking', async () => {
     await load();
 
     button('add').click();
 
-    const input = document.querySelector('textarea');
+    expect(document.activeElement?.id).toBe('new-phrase');
 
-    if (!input) {
-      throw new Error('Missing textarea');
-    }
+    expect(text('screen-hint')).toContain('quem acompanha');
 
-    input.value = 'SIM';
+    expect(document.querySelector('form')?.textContent).toContain('não nesta aplicação');
 
-    document.querySelector('form')?.dispatchEvent(new Event('submit', { cancelable: true }));
+    expect(document.querySelector('form')?.textContent).not.toContain('olhar está desligado');
+
+    submit('');
+
+    expect(text('notice')).not.toBe('');
+
+    submit('SIM');
 
     expect(text('notice')).toContain('já existe');
 
-    input.value = '<img src=x onerror=alert(1)>';
-
-    document.querySelector('form')?.dispatchEvent(new Event('submit', { cancelable: true }));
+    submit('<img src=x onerror=alert(1)>');
 
     expect(text('notice')).toContain('Frase guardada');
 
@@ -425,6 +257,23 @@ describe('phrase board and gaze UI regression', () => {
     button('form-back').click();
 
     expect(text('screen-title')).toBe('O que quer dizer?');
+  });
+
+  it('renders medium and long saved phrases with literal text', async () => {
+    const board = defaultBoard();
+
+    board.phrases[0].text = 'Uma frase com trinta caracteres';
+
+    board.phrases[1].text =
+      'Uma frase longa com muitos caracteres para verificar a apresentação sem alterar o conteúdo.';
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(board));
+
+    await load();
+
+    expect(button('speak:0').classList.contains('medium-phrase')).toBe(true);
+
+    expect(button('speak:1').classList.contains('long-phrase')).toBe(true);
   });
 
   it('does not overwrite corrupt saved data', async () => {
@@ -445,7 +294,7 @@ describe('phrase board and gaze UI regression', () => {
     expect(text('notice')).toContain('Não as vamos substituir');
   });
 
-  it('reports storage quota errors without claiming a successful replacement', async () => {
+  it('reports storage quota errors without claiming a successful replacement or addition', async () => {
     await load();
 
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
@@ -461,308 +310,26 @@ describe('phrase board and gaze UI regression', () => {
     expect(text('notice')).toContain('Nada foi alterado');
 
     expect(text('screen-title')).toBe('Qual botão quer mudar?');
-  });
 
-  it('handles camera permission failure and canceling startup', async () => {
-    await load();
-
-    mocks.start.mockRejectedValueOnce(new Error('Permissão recusada'));
-
-    button('eye-toggle').click();
-
-    await vi.waitFor(() => {
-      expect(text('notice')).toContain('Permissão recusada');
-    });
-
-    let finish: () => void = (): void => {
-      throw new Error('Startup promise is not installed');
-    };
-
-    mocks.start.mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          finish = resolve;
-        }),
-    );
-
-    button('eye-toggle').click();
-
-    button('eye-stop').click();
-
-    finish();
-
-    await Promise.resolve();
-
-    expect(text('tracking')).toBe('Olhar desligado');
-  });
-
-  it('offers connected cameras so a PC webcam can be selected for testing', async () => {
-    const front = { deviceId: 'integrated', kind: 'videoinput', label: 'Integrated camera' };
-    const usb = { deviceId: 'usb', kind: 'videoinput', label: 'USB camera' };
-
-    mocks.videoDeviceId = 'integrated';
-
-    mocks.listVideoInputs.mockResolvedValue([front, usb] as MediaDeviceInfo[]);
-
-    await load();
-
-    await start();
-
-    const selector = document.getElementById('camera-device');
-
-    if (!(selector instanceof HTMLSelectElement)) throw new Error('Missing camera selector');
-
-    expect(selector.hidden).toBe(false);
-
-    expect(selector.value).toBe('integrated');
-
-    selector.value = 'usb';
-
-    selector.dispatchEvent(new Event('change', { bubbles: true }));
-
-    await vi.waitFor(() => {
-      expect(mocks.start).toHaveBeenLastCalledWith('usb');
-    });
-  });
-
-  it('rejects static gaze calibration and never enables selection', async () => {
-    await load();
-
-    await start();
-
-    calibrate(true);
-
-    expect(text('notice')).toContain('não foi suficientemente precisa');
-
-    expect(text('notice')).toContain('Diagnóstico local');
-
-    expect(text('notice')).toMatch(/alvo 1 \(n=\d+\): X \d+%, Y \d+%, ambos \d+%/);
-
-    expect(text('tracking')).toBe('Olhar desligado');
-  });
-
-  it('times out when eyes are not reliably detected', async () => {
-    await load();
-
-    await start();
-
-    for (let i = 0; i < 200; i++) {
-      emit(null);
-    }
-
-    expect(text('notice')).toContain('Não foi possível ver os olhos');
-
-    expect(text('tracking')).toBe('Olhar desligado');
-  });
-
-  it('supports the entire catalogue replacement flow using only calibrated gaze', async () => {
-    await load();
-
-    await start();
-
-    calibrate();
-
-    expect(text('tracking')).toBe('Olhar ativo');
-
-    expect(document.getElementById('content')?.inert).toBe(false);
-
-    away();
-
-    look('catalogue');
-
-    expect(text('screen-title')).toBe('Escolha uma frase');
-
-    away();
-
-    look('next');
-
-    away();
-
-    look('choose:template-4');
-
-    expect(text('screen-title')).toBe('Qual botão quer mudar?');
-
-    away();
-
-    look('replace:2');
-
-    away();
-
-    look('speak:2', 24);
-
-    expect(mocks.speak).not.toHaveBeenCalledWith('Tenho fome');
-
-    look('speak:2', 12);
-
-    expect(mocks.speak).toHaveBeenCalledWith('Tenho fome');
-
-    const count = mocks.speak.mock.calls.length;
-
-    look('speak:2', 60);
-
-    emit(null);
-
-    look('speak:2', 40);
-
-    expect(mocks.speak).toHaveBeenCalledTimes(count);
-
-    emit([100, 100]);
-
-    expect(text('tracking')).toContain('em pausa');
-  });
-
-  it('uses the full-screen camera view and distance control during calibration', async () => {
-    await load();
-
-    await start();
-
-    emit([0.5]);
-
-    const guide = document.getElementById('camera-guide');
-
-    expect(guide?.hidden).toBe(true);
-
-    expect(document.querySelector('#calibration-camera-slot #camera-view video')).not.toBeNull();
-
-    expect(document.getElementById('calibration-target')?.hidden).toBe(true);
-
-    button('calibration-set-distance').click();
-
-    expect(document.getElementById('calibration-target')?.hidden).toBe(false);
-
-    expect(button('calibration-set-distance').textContent).toBe('Alterar distância');
-
-    expect(localStorage.getItem('button-eye-reader.face-width.v1')).toBe('0.28');
-
-    expect(text('calibration-info')).toContain('Calibração 1/9');
-  });
-
-  it('draws local eye and iris markers over the mirrored camera view', async () => {
-    await load();
-
-    expect(document.getElementById('eye-debug-overlay')).not.toBeNull();
-
-    await start();
-
-    const eyeMarkers: EyeMarkers = {
-      leftEye: { bottom: 0.45, left: 0.4, right: 0.48, top: 0.39 },
-      leftIris: { bottom: 0.43, left: 0.43, right: 0.45, top: 0.41 },
-      rightEye: { bottom: 0.45, left: 0.52, right: 0.6, top: 0.39 },
-      rightIris: { bottom: 0.43, left: 0.55, right: 0.57, top: 0.41 },
-    };
-
-    mocks.frame({
-      eyeMarkers,
-      faceBounds: { bottom: 0.66, left: 0.36, right: 0.64, top: 0.3 },
-      faceCount: 1,
-      features: [0.5],
-      time: performance.now(),
-    });
-
-    expect(document.getElementById('eye-debug-overlay')?.getAttribute('style')).toContain(
-      'display: block',
-    );
-
-    expect(Number(document.getElementById('eye-debug-left-eye')?.getAttribute('cx'))).toBeCloseTo(
-      560,
-    );
-
-    expect(Number(document.getElementById('eye-debug-right-eye')?.getAttribute('cx'))).toBeCloseTo(
-      440,
-    );
-
-    expect(Number(document.getElementById('eye-debug-left-iris')?.getAttribute('rx'))).toBeCloseTo(
-      10,
-    );
-  });
-
-  it('pauses gaze and shows local camera guidance when face position is lost', async () => {
-    await load();
-
-    await start();
-
-    calibrate();
-
-    emit(null);
-
-    expect(document.getElementById('camera-guide')?.hidden).toBe(false);
-
-    expect(text('face-guidance')).toContain('olhos abertos');
-
-    expect(text('tracking')).toContain('Ajuste o rosto');
-
-    const distance = document.getElementById('face-width');
-
-    if (!(distance instanceof HTMLInputElement)) throw new Error('Missing face width control');
-
-    distance.value = '42';
-
-    distance.dispatchEvent(new Event('input', { bubbles: true }));
-
-    expect(text('face-guidance')).toContain('Aproxime');
-
-    distance.dispatchEvent(new Event('change', { bubbles: true }));
-
-    expect(localStorage.getItem('button-eye-reader.face-width.v1')).toBe('0.42');
-  });
-
-  it.each(['resize', 'scroll', 'pagehide'])(
-    'disables and requires recalibration on %s',
-    async (event) => {
-      await load();
-
-      await start();
-
-      window.dispatchEvent(new Event(event));
-
-      expect(text('tracking')).toBe('Olhar desligado');
-
-      expect(document.getElementById('calibration')?.hidden).toBe(true);
-    },
-  );
-
-  it('supports Escape, cancel, capture errors and caregiver-only writing', async () => {
-    await load();
-
-    await start();
-
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-
-    expect(text('tracking')).toBe('Olhar desligado');
-
-    await start();
-
-    button('cancel-calibration').click();
-
-    expect(document.activeElement?.id).toBe('eye-toggle');
-
-    await start();
-
-    mocks.error(new Error('A imagem parou'));
-
-    expect(text('notice')).toContain('A imagem parou');
-
-    button('sound').click();
-
-    expect(mocks.speak).toHaveBeenCalledWith('Olá. Esta é a minha voz.');
+    button('board').click();
 
     button('add').click();
 
-    button('eye-toggle').click();
+    submit('Uma frase nova');
 
-    expect(text('notice')).toContain('Termine a escrita');
+    expect(document.querySelector('form')).not.toBeNull();
+
+    expect(text('notice')).toContain('Nada foi alterado');
   });
 
-  it('stops camera when hidden and refreshes valid cross-tab changes', async () => {
+  it('refreshes cross-tab phrase changes and handles cleared, unrelated and corrupt storage', async () => {
     await load();
 
-    await start();
+    button('catalogue').click();
 
-    vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    window.dispatchEvent(new StorageEvent('storage', { key: 'unrelated' }));
 
-    document.dispatchEvent(new Event('visibilitychange'));
-
-    expect(text('notice')).toContain('saiu da aplicação');
+    expect(text('screen-title')).toBe('Escolha uma frase');
 
     localStorage.setItem(STORAGE_KEY, JSON.stringify(defaultBoard()));
 
@@ -770,10 +337,88 @@ describe('phrase board and gaze UI regression', () => {
 
     expect(text('notice')).toContain('noutro separador');
 
+    localStorage.removeItem(STORAGE_KEY);
+
+    window.dispatchEvent(new StorageEvent('storage', { key: null }));
+
+    expect(document.querySelectorAll('.phrase-button')).toHaveLength(4);
+
     localStorage.setItem(STORAGE_KEY, '{bad');
 
     window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEY }));
 
     expect(text('notice')).toContain('não puderam ser lidas');
+  });
+
+  it('stops speech on hiding or leaving, without resetting the board on viewport changes', async () => {
+    await load();
+
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(mocks.stop).not.toHaveBeenCalled();
+
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(mocks.stop).toHaveBeenCalledTimes(1);
+
+    window.dispatchEvent(new Event('pagehide'));
+
+    expect(mocks.stop).toHaveBeenCalledTimes(2);
+
+    button('catalogue').click();
+
+    window.dispatchEvent(new Event('resize'));
+
+    window.dispatchEvent(new Event('scroll'));
+
+    expect(text('screen-title')).toBe('Escolha uma frase');
+  });
+
+  it('reports invalid DOM actions rather than claiming speech or storage success', async () => {
+    await load();
+
+    button('speak:0').dataset.action = 'speak:99';
+
+    button('speak:99').click();
+
+    expect(text('notice')).toContain('não foi encontrada');
+
+    button('catalogue').dataset.action = 'replace:0';
+
+    button('replace:0').click();
+
+    expect(text('notice')).toContain('Escolha primeiro');
+  });
+
+  it('fails explicitly if the application root is missing', async () => {
+    document.body.innerHTML = '';
+
+    await expect(load()).rejects.toThrow('elemento principal');
+  });
+
+  it('reports missing or wrongly typed form inputs', async () => {
+    await load();
+
+    button('add').click();
+
+    document.getElementById('new-phrase')?.remove();
+
+    document.querySelector('form')?.dispatchEvent(new Event('submit', { cancelable: true }));
+
+    expect(text('notice')).toContain('Elemento em falta');
+
+    const input = document.createElement('input');
+
+    input.id = 'new-phrase';
+
+    document.querySelector('form')?.append(input);
+
+    document.querySelector('form')?.dispatchEvent(new Event('submit', { cancelable: true }));
+
+    expect(text('notice')).toContain('tipo incorreto');
   });
 });

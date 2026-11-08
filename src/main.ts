@@ -1,8 +1,4 @@
 import './style.css';
-import { DiagnosticCapture, type DiagnosticReport, REPORT_TRANSFER_KEY } from './diagnostics';
-import { contains, Dwell, type Point, type Target } from './dwell';
-import { assessFaceAlignment, CameraTracker, type TrackingFrame } from './gaze';
-import { fitMapping, type Mapping, predict, type Sample, validationAccepted } from './gaze-math';
 import { Speaker } from './speech';
 import {
   addPhrase,
@@ -17,8 +13,6 @@ import {
 
 type Screen = 'board' | 'catalogue' | 'replace' | 'add';
 
-type EyeMode = 'off' | 'loading' | 'calibrating' | 'validating' | 'ready';
-
 const root = document.querySelector<HTMLDivElement>('#app');
 
 if (!root) throw new Error('O elemento principal não foi encontrado.');
@@ -27,6 +21,10 @@ const app = root;
 let board = defaultBoard();
 let initialError = '';
 let storageHealthy = true;
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Ocorreu um erro inesperado.';
+}
 
 try {
   const raw = localStorage.getItem(STORAGE_KEY);
@@ -41,144 +39,21 @@ try {
 let screen: Screen = 'board';
 let page = 0;
 let selected: Phrase | null = null;
-let eyeMode: EyeMode = 'off';
-let mapping: Mapping | null = null;
-let smooth: Point | null = null;
-let lastValid = 0;
-let samples: Sample[] = [];
-let stageSamples: Sample[] = [];
-let stage = 0;
-let stageSince = 0;
-let stageDeadline = 0;
-let stageInvalid = 0;
-let validationErrors: Point[][] = [];
-let gazeSession = 0;
-let progressId: string | null = null;
-let lastTrackingFrame: TrackingFrame | null = null;
-let distanceCaptured = false;
-let trackingLabel = 'Olhar desligado';
-let diagnosticRequested = false;
-let diagnosticCapture: DiagnosticCapture | null = null;
-let diagnosticReport: DiagnosticReport | null = null;
-const dwell = new Dwell();
-const calibrationPoints: Point[] = [
-  { x: 0.15, y: 0.18 },
-  { x: 0.5, y: 0.18 },
-  { x: 0.85, y: 0.18 },
-  { x: 0.85, y: 0.5 },
-  { x: 0.5, y: 0.5 },
-  { x: 0.15, y: 0.5 },
-  { x: 0.15, y: 0.74 },
-  { x: 0.5, y: 0.74 },
-  { x: 0.85, y: 0.74 },
-];
-const FACE_WIDTH_KEY = 'button-eye-reader.face-width.v1';
-const DEFAULT_FACE_WIDTH = 0.28;
-
-function readFaceWidth(): number {
-  try {
-    const raw = localStorage.getItem(FACE_WIDTH_KEY);
-
-    if (raw === null) return DEFAULT_FACE_WIDTH;
-
-    const value = Number(raw);
-
-    if (!Number.isFinite(value) || value < 0.18 || value > 0.42) {
-      initialError =
-        'O ajuste guardado do enquadramento não é válido. Peça a quem acompanha para o ajustar novamente.';
-
-      return DEFAULT_FACE_WIDTH;
-    }
-
-    return value;
-  } catch (error) {
-    initialError = `Não foi possível ler o ajuste do enquadramento. Será usado o valor inicial. ${errorMessage(error)}`;
-
-    return DEFAULT_FACE_WIDTH;
-  }
-}
-
-let targetFaceWidth = readFaceWidth();
-const eyeDebugEnabled = import.meta.env.DEV || document.documentElement.dataset.eyeDebug === 'true';
-const validationPoints: Point[] = [
-  { x: 0.25, y: 0.3 },
-  { x: 0.75, y: 0.3 },
-  { x: 0.75, y: 0.7 },
-  { x: 0.25, y: 0.7 },
-];
-const eyeDebugMarkup = eyeDebugEnabled
-  ? `<svg id="eye-debug-overlay" class="eye-debug-overlay" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">
-      <ellipse id="eye-debug-left-eye" class="eye-debug-eye"></ellipse>
-      <ellipse id="eye-debug-left-iris" class="eye-debug-iris"></ellipse>
-      <ellipse id="eye-debug-right-eye" class="eye-debug-eye"></ellipse>
-      <ellipse id="eye-debug-right-iris" class="eye-debug-iris"></ellipse>
-    </svg>`
-  : '';
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Ocorreu um erro inesperado.';
-}
 
 app.innerHTML = `
   <div id="shell" class="shell">
     <header>
       <div class="brand"><span class="brand-mark" aria-hidden="true">O</span><div><h1>O meu olhar</h1><p>Uma frase de cada vez</p></div></div>
-      <div class="tracking"><span id="tracking-dot" aria-hidden="true"></span><span id="tracking">Olhar desligado</span><small>EXPERIMENTAL</small></div>
+      <small class="experimental">EXPERIMENTAL</small>
     </header>
-    <section class="guidance" aria-label="Instruções"><div><h2 id="screen-title"></h2><p id="screen-hint"></p></div><span class="dwell-label">Olhar durante <strong>2 segundos</strong></span></section>
-    <section id="camera-guide" class="camera-guide" aria-label="Posição do rosto" hidden>
-      <div id="camera-view" class="camera-view">
-        <div id="face-target" class="face-target" aria-hidden="true"></div>
-        <div id="face-outline" class="face-outline" aria-hidden="true" hidden></div>
-        ${eyeDebugMarkup}
-      </div>
-      <div class="camera-guide-copy">
-        <strong id="face-state">Ajuste a posição</strong>
-        <p id="face-guidance" role="status" aria-live="polite"></p>
-        <label for="face-width">Tamanho do rosto · acompanhante</label>
-        <div class="face-width-control"><span>Mais longe</span><input id="face-width" type="range" min="18" max="42" step="1"><span>Mais perto</span></div>
-        <div id="camera-selector" hidden>
-          <label for="camera-device">Câmara · acompanhante</label>
-          <select id="camera-device"></select>
-        </div>
-        <small>Use a câmara frontal do iPad e mantenha o suporte fixo. A imagem fica neste dispositivo.</small>
-      </div>
-    </section>
+    <section class="guidance" aria-label="Instruções"><div><h2 id="screen-title"></h2><p id="screen-hint"></p></div></section>
     <main id="content"></main>
     <div class="feedback"><p id="spoken" role="status" aria-live="polite">Toque numa frase para falar.</p><p id="notice" role="alert"></p></div>
     <footer>
       <span>Para quem acompanha:</span>
       <button id="sound" class="helper">Testar som</button>
-      <button id="eye-toggle" class="helper">Ativar olhar</button>
-      <button id="eye-stop" class="helper" hidden>Desligar câmara</button>
-      <button id="diagnostics" class="helper">Diagnóstico</button>
-      <span id="diagnostic-state" role="status"></span>
-      <span class="privacy">Câmara e frases ficam neste dispositivo. · v${__APP_VERSION__}</span>
+      <span class="privacy">As frases ficam neste navegador. · v${__APP_VERSION__}</span>
     </footer>
-  </div>
-  <div id="gaze-cursor" aria-hidden="true" hidden></div>
-  <div id="calibration" class="calibration" hidden role="dialog" aria-modal="true" aria-labelledby="calibration-title">
-    <div id="calibration-camera-slot" class="calibration-camera-slot"></div>
-    <div class="calibration-info">
-      <h2 id="calibration-title">Coloque o rosto dentro do oval</h2>
-      <p id="calibration-info"></p>
-    </div>
-    <div id="calibration-target" aria-hidden="true"><span></span></div>
-    <div class="calibration-distance">
-      <button id="calibration-set-distance" type="button">Definir esta distância</button>
-    </div>
-    <button id="cancel-calibration" class="helper">Cancelar</button>
-  </div>
-  <div id="diagnostic-panel" class="diagnostic-panel" hidden role="dialog" aria-modal="true" aria-labelledby="diagnostic-title">
-    <h2 id="diagnostic-title">Diagnóstico · acompanhante</h2>
-    <p>Recolher números de uma calibração para melhorar o olhar. Sem imagens, vídeo, frases ou identificação da pessoa.</p>
-    <p>Apenas nesta sessão. Os dados ficam em memória até decidir enviá-los. O envio exige iniciar sessão e confirmar novamente. Os relatórios guardados expiram após sete dias.</p>
-    <button id="diagnostic-enable">Recolher na próxima calibração</button>
-    <pre id="diagnostic-preview"></pre>
-    <button id="diagnostic-upload" disabled>Rever envio na área privada</button>
-    <button id="diagnostic-discard">Descartar e parar a recolha</button>
-    <button id="diagnostic-close">Voltar à prancha</button>
-    <a href="/diagnostics">Abrir relatórios privados</a>
   </div>`;
 
 function element(id: string): HTMLElement;
@@ -199,44 +74,14 @@ function element(id: string, expected?: new () => HTMLElement): HTMLElement {
 
 const content = element('content');
 const notice = element('notice');
-const overlay = element('calibration');
-const cursor = element('gaze-cursor');
 
 function notify(message: string): void {
   notice.textContent = message;
 }
 
 const speaker = new Speaker(notify, (busy) => {
-  dwell.reset();
-
-  clearProgress();
-
   if (!busy) element('spoken').textContent = 'Pronto para a próxima frase.';
 });
-
-const tracker = new CameraTracker(
-  handleFrame,
-  (error) => {
-    finishDiagnostic('camera-error');
-
-    stopEyes();
-
-    notify(`O olhar foi desligado. ${errorMessage(error)}`);
-  },
-  eyeDebugEnabled,
-);
-
-const cameraView = element('camera-view');
-
-cameraView.prepend(tracker.video);
-
-tracker.video.addEventListener('loadedmetadata', () => {
-  if (tracker.video.videoWidth && tracker.video.videoHeight) {
-    cameraView.style.aspectRatio = `${tracker.video.videoWidth} / ${tracker.video.videoHeight}`;
-  }
-});
-
-element('face-width', HTMLInputElement).value = String(Math.round(targetFaceWidth * 100));
 
 function phraseFor(id: string): Phrase {
   const phrase = board.phrases.find((item) => item.id === id);
@@ -249,7 +94,7 @@ function phraseFor(id: string): Phrase {
 function makeButton(
   text: string,
   action: string,
-  options: { disabled?: boolean; gaze?: boolean; label?: string; secondary?: boolean } = {},
+  options: { disabled?: boolean; label?: string; secondary?: boolean } = {},
 ): HTMLButtonElement {
   const button = document.createElement('button');
 
@@ -261,8 +106,6 @@ function makeButton(
   else if (!options.secondary && text.length > 24) button.classList.add('medium-phrase');
 
   button.dataset.action = action;
-
-  if (options.gaze !== false) button.dataset.gaze = action;
 
   button.disabled = options.disabled ?? false;
 
@@ -290,29 +133,13 @@ function makeButton(
   }
 
   button.addEventListener('click', () => {
-    activate(button, false);
+    activate(button);
   });
 
   return button;
 }
 
-function clearProgress(): void {
-  if (progressId) {
-    content.querySelectorAll<HTMLButtonElement>('[data-gaze]').forEach((button) => {
-      button.classList.remove('dwelling');
-
-      button.style.removeProperty('--progress');
-    });
-  }
-
-  progressId = null;
-}
-
 function render(): void {
-  dwell.reset();
-
-  clearProgress();
-
   content.replaceChildren();
 
   element('shell').classList.toggle('board-screen', screen === 'board');
@@ -338,7 +165,7 @@ function render(): void {
 
   element('screen-hint').textContent =
     screen === 'board'
-      ? 'Olhe para uma frase ou toque no botão.'
+      ? 'Toque numa frase ou use o Controlo ocular do iPad.'
       : screen === 'catalogue'
         ? `Catálogo · página ${page + 1} de ${Math.ceil(board.phrases.length / 4)}`
         : screen === 'replace'
@@ -360,7 +187,7 @@ function render(): void {
     if (screen === 'board') {
       controls.append(makeButton('Escolher outra frase', 'catalogue', { secondary: true }));
 
-      const add = makeButton('Adicionar frase', 'add', { gaze: false, secondary: true });
+      const add = makeButton('Adicionar frase', 'add', { secondary: true });
 
       add.classList.add('caregiver');
 
@@ -424,14 +251,8 @@ function persist(next: Board): boolean {
   }
 }
 
-function activate(button: HTMLButtonElement, fromGaze: boolean): void {
-  if (button.disabled || (fromGaze && (eyeMode !== 'ready' || speaker.speaking))) return;
-
-  const rect = button.getBoundingClientRect();
-
-  dwell.block(rect);
-
-  clearProgress();
+function activate(button: HTMLButtonElement): void {
+  if (button.disabled) return;
 
   const action = button.dataset.action ?? '';
 
@@ -467,11 +288,7 @@ function activate(button: HTMLButtonElement, fromGaze: boolean): void {
       screen = 'board';
 
       selected = null;
-    } else if (action === 'add') {
-      stopEyes();
-
-      screen = 'add';
-    }
+    } else if (action === 'add') screen = 'add';
 
     render();
   } catch (error) {
@@ -488,7 +305,7 @@ function renderForm(): void {
     <label for="new-phrase">Palavra ou frase em português</label>
     <textarea id="new-phrase" name="phrase" maxlength="${MAX_TEXT}" rows="3" required placeholder="Por exemplo: Quero ouvir música"></textarea>
     <p>Até ${MAX_TEXT} caracteres. Fica guardada no catálogo deste iPad.</p>
-    <p>O olhar está desligado nesta área. Ative-o novamente depois de escrever.</p>
+    <p>Área para quem acompanha. O Controlo ocular do iPad é gerido nas definições do dispositivo, não nesta aplicação.</p>
     <div class="controls"><button type="submit" class="control-button">Guardar no catálogo</button><button type="button" id="form-back" class="control-button">Cancelar</button></div>`;
 
   form.addEventListener('submit', (event) => {
@@ -499,8 +316,6 @@ function renderForm(): void {
       const next = addPhrase(board, text);
 
       if (!persist(next)) return;
-
-      page = Math.floor((board.phrases.length - 1) / 4);
 
       screen = 'catalogue';
 
@@ -523,870 +338,20 @@ function renderForm(): void {
   element('new-phrase', HTMLTextAreaElement).focus();
 }
 
-function setTracking(text: string): void {
-  if (text !== trackingLabel) {
-    trackingLabel = text;
-
-    element('tracking').textContent = text;
-  }
-
-  element('tracking-dot').classList.toggle('ready', eyeMode === 'ready' && text === 'Olhar ativo');
-
-  element('tracking-dot').classList.toggle(
-    'needs-position',
-    text === 'Ajuste o rosto para continuar',
-  );
-}
-
-function updateFaceGuide(frame: TrackingFrame): ReturnType<typeof assessFaceAlignment> {
-  const alignment = assessFaceAlignment(frame, targetFaceWidth);
-  const guide = element('camera-guide');
-
-  element('shell').classList.toggle('gaze-active', eyeMode !== 'off' && eyeMode !== 'loading');
-
-  const view = element('camera-view');
-  const outline = element('face-outline');
-  const bounds = frame.faceBounds;
-  const viewWidth = view.clientWidth || 4;
-  const viewHeight = view.clientHeight || 3;
-  const videoWidth = tracker.video.videoWidth || viewWidth;
-  const videoHeight = tracker.video.videoHeight || viewHeight;
-  const scale = Math.min(viewWidth / videoWidth, viewHeight / videoHeight);
-  const contentWidth = videoWidth * scale;
-  const contentHeight = videoHeight * scale;
-  const offsetX = (viewWidth - contentWidth) / 2;
-  const offsetY = (viewHeight - contentHeight) / 2;
-  const contentWidthPercent = (contentWidth / viewWidth) * 100;
-  const contentHeightPercent = (contentHeight / viewHeight) * 100;
-
-  guide.hidden =
-    eyeMode === 'off' ||
-    eyeMode === 'loading' ||
-    eyeMode === 'calibrating' ||
-    eyeMode === 'validating';
-
-  guide.classList.toggle('calibrating', eyeMode === 'calibrating' || eyeMode === 'validating');
-
-  view.classList.toggle('aligned', alignment.aligned);
-
-  view.style.setProperty('--face-target-width', `${targetFaceWidth * contentWidthPercent}%`);
-
-  view.style.setProperty('--camera-content-width', `${contentWidthPercent}%`);
-
-  view.style.setProperty('--camera-content-height', `${contentHeightPercent}%`);
-
-  view.style.setProperty('--camera-content-left', `${(offsetX / viewWidth) * 100}%`);
-
-  view.style.setProperty('--camera-content-top', `${(offsetY / viewHeight) * 100}%`);
-
-  element('face-state').textContent = alignment.aligned ? 'Rosto na área certa' : 'Ajuste o rosto';
-
-  element('face-guidance').textContent = alignment.message;
-
-  const faceTarget = element('face-target');
-
-  faceTarget.classList.toggle('aligned', alignment.aligned);
-
-  faceTarget.style.top = `${((offsetY + contentHeight * 0.48) / viewHeight) * 100}%`;
-
-  outline.hidden = !bounds || frame.faceCount !== 1;
-
-  if (bounds && frame.faceCount === 1) {
-    outline.style.left = `${((offsetX + (1 - bounds.right) * contentWidth) / viewWidth) * 100}%`;
-
-    outline.style.top = `${((offsetY + bounds.top * contentHeight) / viewHeight) * 100}%`;
-
-    outline.style.width = `${(((bounds.right - bounds.left) * contentWidth) / viewWidth) * 100}%`;
-
-    outline.style.height = `${(((bounds.bottom - bounds.top) * contentHeight) / viewHeight) * 100}%`;
-  }
-
-  if (eyeDebugEnabled)
-    updateEyeDebug(frame, viewWidth, viewHeight, offsetX, offsetY, contentWidth, contentHeight);
-
-  return alignment;
-}
-
-function updateEyeDebug(
-  frame: TrackingFrame,
-  viewWidth: number,
-  viewHeight: number,
-  offsetX: number,
-  offsetY: number,
-  contentWidth: number,
-  contentHeight: number,
-): void {
-  const overlay = document.getElementById('eye-debug-overlay');
-
-  if (!(overlay instanceof SVGSVGElement)) {
-    throw new Error('O marcador de olhos de desenvolvimento está em falta.');
-  }
-
-  overlay.style.left = `${(offsetX / viewWidth) * 100}%`;
-
-  overlay.style.top = `${(offsetY / viewHeight) * 100}%`;
-
-  overlay.style.width = `${(contentWidth / viewWidth) * 100}%`;
-
-  overlay.style.height = `${(contentHeight / viewHeight) * 100}%`;
-
-  const markers = frame.eyeMarkers;
-
-  overlay.style.display =
-    markers && Object.values(markers).some((bounds) => bounds !== null) ? 'block' : 'none';
-
-  updateEyeDebugMarker('eye-debug-left-eye', markers?.leftEye ?? null);
-
-  updateEyeDebugMarker('eye-debug-left-iris', markers?.leftIris ?? null);
-
-  updateEyeDebugMarker('eye-debug-right-eye', markers?.rightEye ?? null);
-
-  updateEyeDebugMarker('eye-debug-right-iris', markers?.rightIris ?? null);
-}
-
-function updateEyeDebugMarker(id: string, bounds: TrackingFrame['faceBounds']): void {
-  const marker = document.getElementById(id);
-
-  if (!(marker instanceof SVGElement)) {
-    throw new Error(`O marcador de olhos ${id} está em falta.`);
-  }
-
-  if (!bounds) {
-    marker.style.display = 'none';
-
-    return;
-  }
-
-  marker.style.display = '';
-
-  marker.setAttribute('cx', String((1 - (bounds.left + bounds.right) / 2) * 1000));
-
-  marker.setAttribute('cy', String(((bounds.top + bounds.bottom) / 2) * 1000));
-
-  marker.setAttribute('rx', String(((bounds.right - bounds.left) / 2) * 1000));
-
-  marker.setAttribute('ry', String(((bounds.bottom - bounds.top) / 2) * 1000));
-}
-
-function finishDiagnostic(outcome: DiagnosticReport['outcome']): void {
-  if (!diagnosticCapture) return;
-
-  diagnosticReport = diagnosticCapture.finish(outcome, performance.now());
-
-  diagnosticCapture = null;
-
-  element('diagnostic-preview').textContent = JSON.stringify(diagnosticReport, null, 2);
-
-  element('diagnostic-upload', HTMLButtonElement).disabled = false;
-
-  element('diagnostic-state').textContent = 'Relatório em memória · não enviado';
-}
-
-function stopEyes(): void {
-  finishDiagnostic('cancelled');
-
-  gazeSession++;
-
-  tracker.stop();
-
-  element('camera-view').classList.remove('calibration-camera-view');
-
-  element('camera-guide').prepend(element('camera-view'));
-
-  eyeMode = 'off';
-
-  mapping = null;
-
-  smooth = null;
-
-  dwell.reset();
-
-  clearProgress();
-
-  cursor.hidden = true;
-
-  overlay.hidden = true;
-
-  element('camera-guide').hidden = true;
-
-  element('camera-guide').classList.remove('calibrating');
-
-  element('shell').classList.remove('gaze-active');
-
-  element('shell').classList.remove('gaze-active');
-
-  overlay.classList.remove('distance-selected');
-
-  element('calibration-set-distance').textContent = 'Definir esta distância';
-
-  lastTrackingFrame = null;
-
-  distanceCaptured = false;
-
-  element('eye-stop').hidden = true;
-
-  element('eye-toggle', HTMLButtonElement).disabled = false;
-
-  element('eye-toggle').textContent = 'Ativar olhar';
-
-  content.inert = false;
-
-  element('calibration-target').style.removeProperty('--progress');
-
-  setTracking('Olhar desligado');
-}
-
-async function startEyes(deviceId?: string): Promise<void> {
-  if (!element('diagnostic-panel').hidden) {
-    notify('Feche o diagnóstico antes de ativar o olhar.');
-
-    return;
-  }
-
-  if (screen === 'add') {
-    notify('Termine a escrita antes de ativar o olhar.');
-
-    return;
-  }
-
-  stopEyes();
-
-  if (diagnosticRequested) {
-    diagnosticCapture = new DiagnosticCapture(
-      __APP_VERSION__,
-      innerWidth,
-      innerHeight,
-      performance.now(),
-    );
-
-    diagnosticRequested = false;
-
-    diagnosticReport = null;
-
-    element('diagnostic-preview').textContent = '';
-
-    element('diagnostic-upload', HTMLButtonElement).disabled = true;
-
-    element('diagnostic-state').textContent = 'Diagnóstico: a recolher números';
-  }
-
-  const session = gazeSession;
-
-  eyeMode = 'loading';
-
-  element('eye-toggle', HTMLButtonElement).disabled = true;
-
-  element('eye-stop').hidden = false;
-
-  setTracking('A preparar a câmara…');
-
-  notify(
-    'Use o iPad fixo, com a câmara frontal ao nível dos olhos e luz uniforme. Só uma pessoa deve estar na imagem. O olhar é experimental.',
-  );
-
-  // Starting speech here is a direct touch gesture, required by some iPad audio policies.
-  speaker.speak('Vamos preparar o olhar.');
-
-  try {
-    await tracker.start(deviceId);
-
-    if (session !== gazeSession) return;
-
-    try {
-      const devices = await tracker.listVideoInputs();
-      const selector = element('camera-device', HTMLSelectElement);
-      const selectorContainer = element('camera-selector');
-
-      selector.replaceChildren();
-
-      for (const [index, device] of devices.entries()) {
-        const option = document.createElement('option');
-
-        option.value = device.deviceId;
-
-        option.textContent = device.label || `Câmara ${index + 1}`;
-
-        selector.append(option);
-      }
-
-      selector.value = tracker.videoDeviceId;
-
-      selectorContainer.hidden = devices.length < 2;
-    } catch (error) {
-      notify(
-        `A câmara está ligada, mas não foi possível listar outras câmaras. ${errorMessage(error)}`,
-      );
-    }
-
-    samples = [];
-
-    stageSamples = [];
-
-    validationErrors = [];
-
-    stage = 0;
-
-    stageInvalid = 0;
-
-    distanceCaptured = false;
-
-    stageSince = performance.now();
-
-    stageDeadline = stageSince + 15000;
-
-    eyeMode = 'calibrating';
-
-    element('calibration-camera-slot').append(element('camera-view'));
-
-    element('camera-view').classList.add('calibration-camera-view');
-
-    overlay.hidden = false;
-
-    content.inert = true;
-
-    element('cancel-calibration').focus();
-
-    setTracking('A calibrar o olhar');
-
-    showStage();
-  } catch (error) {
-    if (session !== gazeSession) return;
-
-    finishDiagnostic('camera-error');
-
-    stopEyes();
-
-    notify(
-      `Não foi possível ativar a câmara. ${errorMessage(error)} Pode continuar a usar os botões por toque.`,
-    );
-  }
-}
-
-function showStage(): void {
-  const points = eyeMode === 'calibrating' ? calibrationPoints : validationPoints;
-  const target = element('calibration-target');
-
-  target.hidden = !distanceCaptured;
-
-  target.style.left = `${points[stage].x * 100}%`;
-
-  target.style.top = `${points[stage].y * 100}%`;
-
-  target.style.setProperty('--progress', '0');
-
-  element('calibration-title').textContent =
-    eyeMode === 'calibrating' ? 'Coloque o rosto dentro do oval' : 'Mantenha o rosto no oval';
-
-  element('calibration-info').textContent = distanceCaptured
-    ? `${eyeMode === 'calibrating' ? 'Calibração' : 'Verificação'} ${stage + 1}/${points.length} · Siga o círculo apenas com os olhos.`
-    : 'Ajuste a pessoa na posição habitual e selecione esta distância.';
-}
-
-function validationDiagnostic(): string {
-  const summaries = validationErrors.map((errors, index) => {
-    const withinX = errors.filter((error) => Number.isFinite(error.x) && error.x <= 0.12).length;
-    const withinY = errors.filter((error) => Number.isFinite(error.y) && error.y <= 0.12).length;
-    const withinBoth = errors.filter(
-      (error) =>
-        Number.isFinite(error.x) && Number.isFinite(error.y) && error.x <= 0.12 && error.y <= 0.12,
-    ).length;
-    const percentage = (count: number): string =>
-      `${errors.length ? Math.round((count / errors.length) * 100) : 0}%`;
-
-    return `alvo ${index + 1} (n=${errors.length}): X ${percentage(withinX)}, Y ${percentage(withinY)}, ambos ${percentage(withinBoth)}`;
-  });
-
-  return ` Diagnóstico local — amostras dentro de ±12% por eixo: ${summaries.join('; ')}.`;
-}
-
-function calibrationFrame(frame: TrackingFrame): void {
-  const { features, time } = frame;
-  const alignment = updateFaceGuide(frame);
-
-  diagnosticCapture?.frame(
-    frame,
-    alignment.aligned,
-    tracker.video.videoWidth,
-    tracker.video.videoHeight,
-  );
-
-  if (!alignment.facePositioned) {
-    stageSamples = [];
-
-    stageInvalid = 0;
-
-    stageSince = time;
-
-    stageDeadline = time + 15000;
-
-    element('calibration-target').style.setProperty('--progress', '0');
-
-    element('calibration-info').textContent = alignment.message;
-
-    return;
-  }
-
-  if (time > stageDeadline) {
-    finishDiagnostic('failed');
-
-    stopEyes();
-
-    notify(
-      'Não foi possível ver os olhos de forma estável. Ajuste a luz e a posição e tente novamente.',
-    );
-
-    return;
-  }
-
-  if (!distanceCaptured) {
-    stageSamples = [];
-
-    stageSince = time;
-
-    element('calibration-info').textContent =
-      'Quando o rosto estiver dentro do oval, selecione esta distância abaixo.';
-
-    return;
-  }
-
-  if (!alignment.aligned || !features) {
-    stageInvalid++;
-
-    element('calibration-info').textContent = alignment.message;
-
-    return;
-  }
-
-  const elapsed = time - stageSince;
-
-  element('calibration-target').style.setProperty(
-    '--progress',
-    String(Math.min(1, elapsed / 3000)),
-  );
-
-  const points = eyeMode === 'calibrating' ? calibrationPoints : validationPoints;
-
-  if (elapsed >= 1200) stageSamples.push({ features, point: points[stage] });
-
-  if (elapsed < 3000) return;
-
-  if (stageSamples.length < 12 || stageInvalid > 12) {
-    stageSamples = [];
-
-    stageInvalid = 0;
-
-    stageSince = time;
-
-    showStage();
-
-    element('calibration-info').textContent =
-      'Vamos repetir este ponto. Olhe para o centro do círculo.';
-
-    return;
-  }
-
-  if (eyeMode === 'calibrating') {
-    diagnosticCapture?.point('calibration', points[stage], stageSamples);
-
-    samples.push(...stageSamples);
-  } else {
-    if (!mapping) throw new Error('A calibração não foi encontrada.');
-
-    const calibrated = mapping;
-    const predictions = stageSamples.map((s) => predict(calibrated, s.features));
-
-    diagnosticCapture?.point('verification', points[stage], stageSamples, predictions);
-
-    if (predictions.some((p) => p === null)) {
-      finishDiagnostic('failed');
-
-      stopEyes();
-
-      notify(
-        'O olhar saiu da posição calibrada. Mantenha o ecrã e a câmara fixos e volte a calibrar.',
-      );
-
-      return;
-    }
-
-    const point = points[stage];
-
-    // Use per-frame errors, not just an average that could hide unstable tracking.
-    validationErrors.push(
-      predictions.flatMap((p) =>
-        p ? [{ x: Math.abs(p.x - point.x), y: Math.abs(p.y - point.y) }] : [],
-      ),
-    );
-  }
-
-  stage++;
-
-  stageSamples = [];
-
-  stageInvalid = 0;
-
-  stageSince = time;
-
-  stageDeadline = time + 15000;
-
-  if (stage < points.length) {
-    showStage();
-
-    return;
-  }
-
-  if (eyeMode === 'calibrating') {
-    mapping = fitMapping(samples);
-
-    stage = 0;
-
-    eyeMode = 'validating';
-
-    showStage();
-
-    return;
-  }
-
-  if (!validationErrors.every(validationAccepted)) {
-    finishDiagnostic('failed');
-
-    stopEyes();
-
-    notify(
-      `A verificação não foi suficientemente precisa (90% dos pontos devem ficar a menos de 12% do ecrã em cada direção). O olhar não foi ativado. Use o toque ou tente calibrar novamente.${eyeDebugEnabled ? validationDiagnostic() : ''}`,
-    );
-
-    return;
-  }
-
-  finishDiagnostic('passed');
-
-  eyeMode = 'ready';
-
-  element('camera-view').classList.remove('calibration-camera-view');
-
-  element('camera-guide').prepend(element('camera-view'));
-
-  overlay.hidden = true;
-
-  content.inert = false;
-
-  element('eye-toggle', HTMLButtonElement).disabled = false;
-
-  element('eye-toggle').textContent = 'Recalibrar';
-
-  smooth = null;
-
-  dwell.reset();
-
-  // Require looking away from the final calibration target before any selection.
-  const final = validationPoints[validationPoints.length - 1];
-
-  dwell.block({
-    bottom: (final.y + 0.15) * innerHeight,
-    left: (final.x - 0.15) * innerWidth,
-    right: (final.x + 0.15) * innerWidth,
-    top: (final.y - 0.15) * innerHeight,
-  });
-
-  setTracking('Olhar ativo');
-
-  notify(
-    'Olhar experimental ativo. Teste todas as frases e a troca no catálogo com acompanhamento. Se houver erros, desligue o olhar.',
-  );
-}
-
-function handleFrame(frame: TrackingFrame): void {
-  lastTrackingFrame = frame;
-
-  if (eyeMode === 'calibrating' || eyeMode === 'validating') {
-    calibrationFrame(frame);
-
-    return;
-  }
-
-  if (eyeMode !== 'ready' || !mapping) return;
-
-  const alignment = updateFaceGuide(frame);
-  const raw = frame.features ? predict(mapping, frame.features) : null;
-  const valid = raw && raw.x >= 0 && raw.x <= 1 && raw.y >= 0 && raw.y <= 1;
-
-  if (!alignment.aligned || !valid || speaker.speaking) {
-    smooth = null;
-
-    dwell.update(null, [], frame.time);
-
-    clearProgress();
-
-    cursor.hidden = true;
-
-    setTracking(
-      speaker.speaking
-        ? 'A falar · olhar em pausa'
-        : alignment.aligned
-          ? 'Olhar em pausa'
-          : 'Ajuste o rosto para continuar',
-    );
-
-    return;
-  }
-
-  const pixel = { x: raw.x * innerWidth, y: raw.y * innerHeight };
-
-  if (frame.time - lastValid > 350) smooth = null;
-
-  lastValid = frame.time;
-
-  smooth = smooth
-    ? { x: smooth.x * 0.55 + pixel.x * 0.45, y: smooth.y * 0.55 + pixel.y * 0.45 }
-    : pixel;
-
-  setTracking('Olhar ativo');
-
-  cursor.hidden = false;
-
-  cursor.style.left = `${smooth.x}px`;
-
-  cursor.style.top = `${smooth.y}px`;
-
-  const buttons = [
-    ...content.querySelectorAll<HTMLButtonElement>('button[data-gaze]:not(:disabled)'),
-  ];
-  const targets: Target[] = buttons.map((button) => {
-    const id = button.dataset.gaze;
-
-    if (!id) {
-      throw new Error('Um botão não tem identificador de olhar.');
-    }
-
-    return { id, rect: button.getBoundingClientRect() };
-  });
-  // Both raw and smoothed positions must be within the same button; smoothing alone can linger after looking away.
-  const safeTargets = targets.filter((target) => contains(target.rect, pixel, 16));
-  const result = dwell.update(smooth, safeTargets, frame.time);
-
-  clearProgress();
-
-  if (result.id) {
-    const button = buttons.find((item) => item.dataset.gaze === result.id);
-
-    if (button) {
-      progressId = result.id;
-
-      button.classList.add('dwelling');
-
-      button.style.setProperty('--progress', String(result.progress));
-
-      if (result.fire) activate(button, true);
-    }
-  }
-}
-
-element('face-width', HTMLInputElement).addEventListener('input', (event) => {
-  const input = event.currentTarget;
-
-  if (!(input instanceof HTMLInputElement)) throw new Error('O ajuste do rosto não é válido.');
-
-  targetFaceWidth = Number(input.value) / 100;
-
-  if (lastTrackingFrame) updateFaceGuide(lastTrackingFrame);
-});
-
-element('face-width', HTMLInputElement).addEventListener('change', () => {
-  try {
-    localStorage.setItem(FACE_WIDTH_KEY, String(targetFaceWidth));
-  } catch (error) {
-    notify(`O ajuste só fica guardado nesta sessão. ${errorMessage(error)}`);
-  }
-});
-
-element('calibration-set-distance').addEventListener('click', () => {
-  const bounds = lastTrackingFrame?.faceBounds;
-
-  if (lastTrackingFrame?.faceCount !== 1 || !bounds) {
-    element('calibration-info').textContent =
-      'Ainda não detetei um rosto. Olhe para a câmara e tente novamente.';
-
-    return;
-  }
-
-  const width = bounds.right - bounds.left;
-
-  if (width < 0.18 || width > 0.42) {
-    element('calibration-info').textContent =
-      width < 0.18
-        ? 'Aproxime a pessoa até o rosto ficar dentro do oval. Depois, selecione a distância abaixo.'
-        : 'Afaste a pessoa até o rosto ficar dentro do oval. Depois, selecione a distância abaixo.';
-
-    return;
-  }
-
-  targetFaceWidth = width;
-
-  distanceCaptured = true;
-
-  overlay.classList.add('distance-selected');
-
-  element('face-width', HTMLInputElement).value = String(Math.round(width * 100));
-
-  element('calibration-set-distance').textContent = 'Alterar distância';
-
-  stageSamples = [];
-
-  stageInvalid = 0;
-
-  stageSince = lastTrackingFrame.time;
-
-  stageDeadline = stageSince + 15000;
-
-  showStage();
-
-  if (lastTrackingFrame) updateFaceGuide(lastTrackingFrame);
-
-  try {
-    localStorage.setItem(FACE_WIDTH_KEY, String(targetFaceWidth));
-  } catch (error) {
-    element('calibration-info').textContent =
-      'Distância definida nesta sessão, mas não foi possível guardá-la.';
-
-    notify(`O ajuste só fica guardado nesta sessão. ${errorMessage(error)}`);
-  }
-});
-
-element('camera-device', HTMLSelectElement).addEventListener('change', (event) => {
-  const selector = event.currentTarget;
-
-  if (!(selector instanceof HTMLSelectElement))
-    throw new Error('A câmara selecionada não é válida.');
-
-  if (selector.value && selector.value !== tracker.videoDeviceId) void startEyes(selector.value);
-});
-
 element('sound').addEventListener('click', () => {
   speaker.speak('Olá. Esta é a minha voz.');
 });
 
-element('eye-toggle').addEventListener('click', () => {
-  void startEyes();
-});
-
-element('eye-stop').addEventListener('click', stopEyes);
-
-element('diagnostics').addEventListener('click', () => {
-  stopEyes();
-
-  content.inert = true;
-
-  element('diagnostic-panel').hidden = false;
-
-  element('diagnostic-enable').focus();
-});
-
-element('diagnostic-enable').addEventListener('click', () => {
-  diagnosticRequested = true;
-
-  element('diagnostic-state').textContent = 'Diagnóstico preparado · próxima calibração';
-});
-
-element('diagnostic-close').addEventListener('click', () => {
-  element('diagnostic-panel').hidden = true;
-
-  content.inert = false;
-
-  element('diagnostics').focus();
-});
-
-element('diagnostic-discard').addEventListener('click', () => {
-  diagnosticRequested = false;
-
-  diagnosticCapture = null;
-
-  diagnosticReport = null;
-
-  element('diagnostic-preview').textContent = '';
-
-  element('diagnostic-state').textContent = '';
-
-  element('diagnostic-upload', HTMLButtonElement).disabled = true;
-
-  try {
-    sessionStorage.removeItem(REPORT_TRANSFER_KEY);
-  } catch (error) {
-    notify(`Não foi possível apagar o relatório pendente. ${errorMessage(error)}`);
-  }
-});
-
-element('diagnostic-upload').addEventListener('click', () => {
-  if (!diagnosticReport) return;
-
-  try {
-    sessionStorage.setItem(
-      REPORT_TRANSFER_KEY,
-      JSON.stringify({
-        expires: Date.now() + 15 * 60 * 1000,
-        report: diagnosticReport,
-      }),
-    );
-
-    window.location.assign('/diagnostics');
-  } catch (error) {
-    notify(`Não foi possível abrir o envio privado. ${errorMessage(error)}`);
-  }
-});
-
-element('cancel-calibration').addEventListener('click', () => {
-  stopEyes();
-
-  element('eye-toggle').focus();
-});
-
-document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && eyeMode !== 'off') stopEyes();
-});
-
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) {
-    const wasActive = eyeMode !== 'off';
-
-    stopEyes();
-
-    speaker.stop();
-
-    if (wasActive)
-      notify('O olhar foi desligado porque saiu da aplicação. Ative-o e calibre novamente.');
-  }
+  if (document.hidden) speaker.stop();
 });
 
 window.addEventListener('pagehide', () => {
-  stopEyes();
-
   speaker.stop();
 });
 
-window.addEventListener('resize', () => {
-  if (eyeMode !== 'off') {
-    stopEyes();
-
-    notify('O tamanho ou a orientação do ecrã mudou. Ative o olhar e calibre novamente.');
-  }
-});
-
-window.addEventListener(
-  'scroll',
-  () => {
-    if (eyeMode !== 'off') {
-      stopEyes();
-
-      notify('O ecrã deslocou-se. Volte à posição inicial e calibre novamente.');
-    }
-  },
-  { passive: true },
-);
-
 window.addEventListener('storage', (event) => {
   if (event.key !== STORAGE_KEY && event.key !== null) return;
-
-  stopEyes();
 
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -1403,7 +368,7 @@ window.addEventListener('storage', (event) => {
 
     render();
 
-    notify('As frases foram alteradas noutro separador. O olhar foi desligado.');
+    notify('As frases foram alteradas noutro separador.');
   } catch (error) {
     storageHealthy = false;
 

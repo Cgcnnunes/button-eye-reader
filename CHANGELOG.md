@@ -2,10 +2,13 @@
 
 ## 0.4.0
 
-- Add opt-in numerical calibration reports with caregiver review and explicit authenticated upload.
-- Support separate private TEST/PROD R2 storage, signed Access authentication, seven-day report
-  expiry, download and deletion; keep camera images and raw landmarks on the device.
-- Preserve independent gaze verification, dwell thresholds and repeat locks.
+- Replace app-managed camera tracking, calibration and dwell with standard button activation for
+  Apple's built-in iPad Eye Tracking; retain touch, four speaking targets and pt-PT speech.
+- Remove the custom tracking header/debug marker, MediaPipe models/dependency, camera controls and
+  related deployment checks. Deny website camera access and remove unused WASM/blob allowances.
+- Remove the unshipped calibration-report feature, private R2 bindings, report authentication and
+  cleanup schedules; preserve optional TEST Access authentication.
+- Document native setup, caregiver writing limitations and supervised physical-device acceptance.
 
 ## 0.3.3
 

@@ -14,7 +14,9 @@
 - PR to main using the standard template, exactly one major/minor/patch choice, and a matching
   prepared package version. Squash subject must equal the validated PR title. Never amend/rewrite
   published work or force-push without approval.
-- Preserve four speaking targets, pt-PT, local camera processing, gaze repeat locks, independent
-  calibration verification and the caregiver-only writing boundary.
-- Simulated/PC camera tests do not establish physical iPad eye-tracking accuracy. Report remaining
+- Preserve four speaking targets, pt-PT, standard accessible button activation, speech busy guards
+  and the caregiver-only writing workflow. Apple manages Eye Tracking; do not add app camera
+  capture, gaze calibration or dwell logic. The app cannot disable system tracking in the writing
+  area.
+- Simulated/PC button tests do not establish physical iPad eye-tracking accuracy. Report remaining
   device limitations honestly; never collect face images for tests.

@@ -7,7 +7,6 @@
     "node": ">=22.22.2"
   },
   "scripts": {
-    "assets": "node scripts/prepare-assets.ts",
     "branch:new": "node scripts/repository.ts branch",
     "build": "npm run check && vite build",
     "check": "tsc --noEmit",
@@ -20,7 +19,6 @@
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix --max-warnings 0",
-    "postinstall": "npm run assets",
     "precommit": "npm run docs:check && lint-staged && npm run check && npm test",
     "prepare": "husky",
     "preview": "vite preview --host 127.0.0.1",
@@ -29,10 +27,6 @@
     "test": "vitest run --coverage",
     "test:watch": "vitest",
     "verify": "npm run format:check && npm run lint && npm test && npm run build"
-  },
-  "dependencies": {
-    "@mediapipe/tasks-vision": "0.10.32",
-    "jose": "^6.1.0"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.4",

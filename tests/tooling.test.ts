@@ -6,31 +6,25 @@ import { describe, expect, it } from 'vitest';
 const root = fileURLToPath(new URL('../', import.meta.url));
 
 describe('mandatory lint and hook configuration', () => {
-  it('keeps report storage and cleanup separate for TEST and PROD', () => {
+  it('keeps static TEST and PROD free of custom tracking and report infrastructure', () => {
     const config = readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
     const production = config.split('"production": {')[1].split('"test": {')[0];
     const test = config.split('"test": {')[1];
 
-    expect(config.split('"env": {')[0]).not.toContain('"r2_buckets"');
+    expect(production).toContain('"name": "button-eye-reader-prod"');
 
-    for (const [section, bucket] of [
-      [production, 'button-eye-reader-reports-prod'],
-      [test, 'button-eye-reader-reports-test'],
-    ]) {
-      expect(section).toContain(`"bucket_name": "${bucket}"`);
+    expect(test).toContain('"name": "button-eye-reader-test"');
 
-      expect(section).toContain('"binding": "REPORTS"');
+    expect(config).not.toMatch(/r2_buckets|crons|diagnostics|DEPLOYMENT_ENVIRONMENT/);
 
-      expect(section).toContain('"crons": ["17 * * * *"]');
+    const manifest = readFileSync(new URL('../package.json', import.meta.url), 'utf8');
+    const headers = readFileSync(new URL('../public/_headers', import.meta.url), 'utf8');
 
-      expect(section).toContain('"/diagnostics/*"');
+    expect(manifest).not.toMatch(/mediapipe|jose|prepare-assets|postinstall/);
 
-      expect(section).toContain('"/diagnostics.html"');
-    }
+    expect(headers).toContain('camera=()');
 
-    expect(production).not.toContain('button-eye-reader-reports-test');
-
-    expect(test).not.toContain('button-eye-reader-reports-prod');
+    expect(headers).not.toMatch(/wasm-unsafe-eval|blob:|unsafe-inline/);
   });
 
   it('cancels superseded PR validation while queueing deployments independently', () => {

@@ -70,12 +70,13 @@ and tests; do not add unrelated filler to satisfy the hook.
 - Static imports, exports, object keys and interface/type members are alphabetical. Preserve arrays,
   workflow steps and side-effect ordering.
 - `no-unnecessary-condition` is intentionally not enforced: DOM declarations and indexed array types
-  cannot prove actual camera capabilities, received landmarks or existence of runtime data. Keep
-  those defensive checks. Numeric interpolation is allowed, but object/unknown interpolation is not.
+  cannot prove the validity of browser storage or existence of runtime data. Keep those defensive
+  checks. Numeric interpolation is allowed, but object/unknown interpolation is not.
 - Runtime guards and `unknown` for external/JSON data; never use `as any`, double casts or broad
   catch-and-default behavior. Errors must be visible.
-- Do not change communication/gaze thresholds, number of targets, storage schema, language or voice
-  policy without updating boundary tests and documentation.
+- Do not change communication behavior, number of targets, storage schema, language or voice policy
+  without updating boundary tests and documentation. Apple manages tracking/calibration/dwell;
+  preserve standard button activation and the caregiver-only writing workflow.
 
 ## Hooks, CI and review
 
