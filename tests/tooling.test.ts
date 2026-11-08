@@ -48,6 +48,23 @@ describe('mandatory lint and hook configuration', () => {
     expect(headers).not.toMatch(/wasm-unsafe-eval|blob:|unsafe-inline/);
   });
 
+  it('binds distinct provisioned remote databases while keeping local development isolated', () => {
+    const config = readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
+    const ids = [...config.matchAll(/"database_id":\s*"([^"]+)"/g)].map((match) => match[1]);
+
+    expect(ids).toHaveLength(3);
+
+    expect(ids[0]).toBe('00000000-0000-0000-0000-000000000000');
+
+    expect(new Set(ids).size).toBe(3);
+
+    for (const id of ids.slice(1)) {
+      expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    }
+
+    expect(config).not.toContain('REPLACE_WITH_');
+  });
+
   it('cancels superseded PR validation while queueing deployments independently', () => {
     const validation = readFileSync(
       new URL('../.github/workflows/execute-pr-validation.yml', import.meta.url),
