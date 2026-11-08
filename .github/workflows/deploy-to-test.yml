@@ -1,5 +1,6 @@
 name: Deploy to TEST
 
+# TODO: Switch to push on main once main is PR-only and the TEST environment allows main.
 on:
   pull_request:
     branches: [main]

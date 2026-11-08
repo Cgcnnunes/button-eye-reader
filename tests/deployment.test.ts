@@ -374,14 +374,32 @@ describe('deployment API, artifact and promotion orchestration', () => {
     await expect(smoke('test')).rejects.toThrow('does not match');
   });
 
+  it('allows TEST smoke checks without Access credentials when both are unset', async () => {
+    configureSmoke();
+
+    vi.stubEnv('CLOUDFLARE_ACCESS_CLIENT_ID', '');
+
+    vi.stubEnv('CLOUDFLARE_ACCESS_CLIENT_SECRET', '');
+
+    await expect(smoke('test')).resolves.toBeUndefined();
+
+    expect(fetch).toHaveBeenCalledTimes(6);
+
+    for (const [, options] of vi.mocked(fetch).mock.calls) {
+      expect(options?.headers).toBeUndefined();
+    }
+  });
+
   it.each(['CLOUDFLARE_ACCESS_CLIENT_ID', 'CLOUDFLARE_ACCESS_CLIENT_SECRET'])(
-    'requires TEST setting %s before making requests',
+    'rejects a partial TEST Access credential pair when %s is missing',
     async (name) => {
       configureSmoke();
 
       vi.stubEnv(name, '');
 
-      await expect(smoke('test')).rejects.toThrow(`Missing required environment setting: ${name}`);
+      await expect(smoke('test')).rejects.toThrow(
+        'Configure both Cloudflare Access service token secrets or leave both unset.',
+      );
 
       expect(fetch).not.toHaveBeenCalled();
     },

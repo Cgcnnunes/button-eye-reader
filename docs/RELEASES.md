@@ -62,8 +62,8 @@ verification inside that workflow without waiting for a separate validation work
 - verifies a one-parent squash commit whose subject equals the PR title, optionally followed by
   GitHub's exact ` (#<PR-number>)` suffix; other title changes are rejected;
 - checks documentation changed and the selected semantic version;
-- deploys only `button-eye-reader-test` and verifies Access-protected assets, marker and headers
-  using the TEST service token; PROD smoke checks remain unauthenticated;
+- deploys only `button-eye-reader-test` and verifies assets, marker and headers, using the TEST
+  service token when Access is configured; PROD smoke checks remain unauthenticated;
 - stores the exact static build as an immutable Actions artifact with 90-day retention;
 - creates an annotated immutable tag and a GitHub prerelease with automatically generated notes
   based on the previous stable production release, plus TEST URL and provenance;
