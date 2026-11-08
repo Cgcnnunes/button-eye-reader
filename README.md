@@ -90,7 +90,7 @@ and battery usage on the iPad.
 
 Use **Cloudflare Workers Static Assets**, deployed by **GitHub Actions** to two Workers. Cloudflare
 Pipelines is a data-ingestion product and is not used. **Do not connect Workers Builds**: automatic
-production deployment would bypass manual approval.
+deployment would bypass the workflow's tag/provenance checks and explicit PROD promotion.
 
 Follow the [setup, recovery and verification guide](docs/DEPLOYMENT.md), also reusable for other
 static apps. **Before enabling workflows, confirm that `main` exists on GitHub and is the default
@@ -100,8 +100,8 @@ environments; external settings do not change just because YAML changes.
 Each protected push to `main` validates and deploys **TEST only**. Only after success does it create
 a `vX.Y.Z` tag and GitHub prerelease with generated notes. After testing, dispatch **Deploy to
 PROD** from that exact tag: it validates provenance and deploys the same artifact without
-rebuilding, then makes the same release stable. See the guide for tokens, URLs and `production`
-approval setup.
+rebuilding, then makes the same release stable. See the guide for tokens, URLs, the `production` tag
+restriction and reviewer approval if GitHub offers that setting.
 
 Create both TEST and PROD Workers from scratch using the guide and copy their actual URLs. The
 starter content is replaced only by the respective workflow. Choose the final origin before storing

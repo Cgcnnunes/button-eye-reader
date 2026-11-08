@@ -13,8 +13,9 @@
    releases. Optionally protect release tags against modification/deletion while allowing the
    workflow to create new ones.
 5. Follow [DEPLOYMENT.md](DEPLOYMENT.md): create TEST and PROD Workers from scratch without Workers
-   Builds and GitHub `test`/`production` environments with scoped secrets, correct URLs and
-   production reviewers where supported.
+   Builds and GitHub `test`/`production` environments with scoped secrets, correct URLs and the
+   `production` tag restriction. Configure required reviewers if GitHub offers that setting; do not
+   assume a reviewer gate exists if it is unavailable.
 
 Branch settings/merge permissions are server-side configuration, not something installing Husky or
 committing YAML can enforce on its own.
@@ -94,10 +95,15 @@ prereleases retain the workflow definition that was present when they were creat
 The workflow requires the selected ref to be an annotated `vX.Y.Z` tag that is an ancestor of main,
 matching manifest versions and TEST provenance, the exact successful TEST attempt including its code
 verification, and an unexpired artifact with its original ID/digest. It blocks stable releases and
-downgrades. The production environment should require a reviewer: unlike a checkbox, this is an
-independent human gate. After environment approval it repeats validation, downloads and hashes the
-exact original ZIP, and deploys the tested static files without a build. Only after PROD smoke tests
-does it mark that same release stable/latest. Generated notes and the tag SHA are retained.
+downgrades. The `production` environment should be restricted to `v*`; this repository currently has
+that rule, but GitHub does not expose a required-reviewer control in its settings. Thus a validly
+dispatched tag can proceed after automated validation without a second-person approval. When
+required reviewers are available and configured, they provide an independent human gate and the
+workflow repeats validation after approval. Otherwise, only users with write access can dispatch,
+and testing the exact tag/SHA before dispatch remains an operational requirement, not an enforced
+approval. The workflow downloads and hashes the exact original ZIP, deploys the tested static files
+without a build, and only after PROD smoke tests marks that same release stable/latest. Generated
+notes and the tag SHA are retained.
 
 Human acceptance must identify the tested tag/SHA before TEST is overwritten by a later main push.
 Dispatch and automated validation do not prove iPad acceptance.

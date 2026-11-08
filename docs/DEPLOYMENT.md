@@ -6,12 +6,15 @@ Cloudflare Pipelines is a data-ingestion product and is not used.
 
 - Protected push to `main` -> validation -> TEST Worker -> smoke tests -> artifact -> `vX.Y.Z` tag
   and GitHub **prerelease**, with notes generated since the previous stable release.
-- Dispatch **Deploy to PROD** from that tag -> provenance validation -> environment approval ->
-  download the same artifact -> PROD Worker -> smoke tests -> make the same release stable.
+- Dispatch **Deploy to PROD** from that tag -> provenance validation -> (if configured) environment
+  reviewer approval -> download the same artifact -> PROD Worker -> smoke tests -> make the same
+  release stable.
 
-Pushes, merges and tag creation do not deploy PROD. Any push to `main` deploys TEST, so protect
-`main` with required PRs and checks before making the repository public. The site is not rebuilt for
-PROD.
+Pushes, merges and tag creation do not deploy PROD. A valid PROD deployment requires an explicit
+workflow dispatch by someone with write access. A separate reviewer approval is enforced only if
+GitHub offers and the `production` environment has that protection rule configured. Any push to
+`main` deploys TEST, so protect `main` with required PRs and checks before making the repository
+public. The site is not rebuilt for PROD.
 
 ## 1. Prerequisites
 
@@ -101,13 +104,23 @@ Use **environment secrets**, not repository-wide PROD credentials. GitHub suppli
 automatically; do not create a PAT for these workflows.
 
 For `test`, select **Deployment branches and tags -> Selected branches and tags** and allow the
-**`main`** branch. Restrict `production` to **tags matching `v*`** so a branch-selected dispatch
-cannot reach the deployment job. Configure required reviewers for `production` and prevent
-self-approval if the GitHub plan supports it. The PROD workflow must be dispatched from an existing
-release tag; it rejects branch refs and uses the selected tag as its release identifier. The manual
-dispatch checkbox was removed because it was only a self-attestation, not verifiable evidence of
-testing. Required environment reviewers provide an independent human gate; do not claim that
-protection is active unless configured.
+**`main`** branch. For `production`, select **Selected branches and tags** and add a **tag** rule
+with the pattern **`v*`**; do not add a branch rule. Verify the page lists the rule: selecting this
+mode with no rules still allows all refs. This environment restriction complements, but does not
+replace, the workflow's tag and provenance validation.
+
+If GitHub offers **Environment protection rules -> Required reviewers**, add the intended reviewer
+and enable **Prevent self-review** if available. Reviewer availability depends on repository
+visibility and GitHub plan; for example, Free, Pro and Team offer required reviewers for public
+repositories. If the setting is unavailable, the environment does **not** pause for human approval.
+In this repository's current settings, `production` is restricted to the `v*` tag pattern, but no
+required-reviewer control is available. Therefore, a valid, explicitly dispatched tag deployment may
+proceed after automated validation without a second person approving it. Do not describe this setup
+as requiring reviewer approval. Recheck this setting if repository visibility or plan changes.
+
+The PROD workflow must be dispatched from an existing release tag; it rejects branch refs and uses
+the selected tag as its release identifier. The manual dispatch checkbox was removed because it was
+only a self-attestation, not verifiable evidence of testing.
 
 Under **Settings -> Actions**, allow the workflows and actions used here. Jobs declare their
 permissions: TEST needs `contents: write` and `actions: read`; PROD uses read permissions for
@@ -159,9 +172,9 @@ deployment-hook URLs. Authenticate directly on GitHub/Cloudflare login pages, no
 
 ## 4. First merge and TEST acceptance
 
-After creating both Workers and configuring deployment secrets, URLs and approvals, squash-merge the
-workflow PR. The merge's push to `main` triggers **Actions -> Deploy to TEST**
-(`deploy-to-test.yml`). Confirm:
+After creating both Workers and configuring deployment secrets, URLs and the `production` tag
+restriction, squash-merge the workflow PR. The merge's push to `main` triggers **Actions -> Deploy
+to TEST** (`deploy-to-test.yml`). Confirm:
 
 1. Checkout of the pushed `main` SHA and successful `npm run verify` inside the TEST workflow
    itself.
@@ -194,8 +207,10 @@ acceptance. Use [TESTING.md](TESTING.md) with non-confidential test phrases.
    successful TEST attempt (including its code verification), and artifact ID/digest and validity.
    It also rejects versions equal to or below the latest stable release. A branch-selected dispatch
    may start a validation job, but it fails before reaching PROD.
-4. A required reviewer approves the `production` environment. Validation is repeated after approval
-   to detect changes during the wait.
+4. If required reviewers are configured for `production`, the job waits for an eligible reviewer to
+   approve; validation is repeated afterwards to detect changes during the wait. If this rule is
+   unavailable or not configured, there is no approval pause and deployment proceeds after
+   validation.
 5. The job downloads the original ZIP, checks SHA-256 and the marker, deploys with
    `--env production` and checks the PROD URL. **It does not run Vite or recompile the site.**
 6. Only afterwards does the same GitHub release become stable/latest. The tag remains unchanged.
@@ -255,6 +270,13 @@ warnings from the Cloudflare dashboard are not necessarily application failures.
   `actions/setup-node`.
 - **Deployment authentication/permission error:** check account, token validity and token selection.
   Correct only the permission identified in the logs.
+- **PROD smoke test says the configured environment URL does not match the deployed Worker:**
+  Wrangler has already deployed before the smoke test, so PROD may already be updated even though
+  the workflow failed and the release remains a prerelease. Set `DEPLOYMENT_URL` in the `production`
+  environment to the exact root URL Wrangler printed for the Worker name in `wrangler.jsonc`, then
+  rerun promotion for the same tag while it is still a prerelease. In this repository, Wrangler
+  reported `https://button-eye-reader.cgcnnunes.workers.dev`; the environment URL must not add
+  `-prod` to the Worker name.
 - **TEST environment rejects `main`:** allow the `main` branch in the GitHub `test` environment.
   Keep `production` restricted to tags matching `v*`.
 - **TEST smoke request redirects to Access login or returns 401/403:** deployment may already have
