@@ -114,6 +114,56 @@ KDF cost to make a Free deployment pass.
 
 ### Invitation-only accounts and recovery
 
+#### Add a new user step by step
+
+There are two independent identities: an optional Cloudflare Access email permits entry to TEST,
+while the application username/password opens that environment's saved communication board. Allowing
+an email in Access does not create an app account, and creating an app account does not add an
+Access email.
+
+1. Open a terminal in the repository root. Authenticate with `npx wrangler login`, then run
+   `npx wrangler whoami` and confirm the account owning the intended Worker/database. The operator
+   needs D1 editing permission; the database must be provisioned and migrated.
+2. Choose **TEST** or **PROD** deliberately. Accounts and boards are separate: a TEST invitation
+   does not create a PROD account. Choose a username, not an email address.
+3. For TEST, replace `new-caregiver` below with the desired username and run:
+
+   ```powershell
+   node scripts\accounts.ts invite --env test --username new-caregiver --origin https://button-eye-reader-test.cgcnnunes.workers.dev
+   ```
+
+   For PROD, use this command instead, only after PROD database setup and account deployment:
+
+   ```powershell
+   node scripts\accounts.ts invite --env production --username new-caregiver --origin https://button-eye-reader-prod.cgcnnunes.workers.dev
+   ```
+
+4. Send the printed one-use setup link directly to the intended caregiver. It expires after 24
+   hours. Treat it like a password: never paste it into chat, tickets, shared logs or CI.
+5. If TEST uses Cloudflare Access, open its application in **Zero Trust > Access > Applications**,
+   edit the human **Allow** policy and add the intended user's email to the permitted **Emails**
+   selector. Preserve existing permitted users and the separate automation **Service Auth** policy;
+   do not allow everyone or put caregiver emails in the automation policy. Dashboard labels may
+   vary; see the optional browser Access section below. This step can be done in the dashboard, but
+   it only grants entry through Access.
+6. The caregiver opens the link in Safari, completes Access email/code login if required, then
+   chooses a 12–128-character app password. If Access redirected away from the setup form, reopen
+   the original invitation link after completing Access login.
+7. Subsequent app logins use the chosen **username and password**, not the Access email/code.
+   Confirm the four speaking buttons appear. A new account starts with default phrases; existing
+   browser-local phrases are not imported.
+
+There is currently no dashboard or in-app **Add user** control. Do not create accounts by manually
+inserting D1 rows or storing plaintext passwords: the CLI securely generates the one-use token,
+stores its hash/expiry and initializes the board. The caregiver chooses the password on the site.
+
+If the username already exists or its invitation has expired, issue a replacement setup link using
+`reset` with the same environment, origin and username, rather than another `invite`. This also
+works for an invited account that has not yet chosen a password. Send the new link privately;
+redeeming it preserves the board and revokes existing app sessions.
+
+#### Operator commands and recovery details
+
 There is **no public sign-up or administrator HTTP endpoint**. An authenticated operator creates
 accounts or recovery links with Wrangler:
 
@@ -131,9 +181,15 @@ hours and usable once. Issuing a new link replaces any older unconsumed link for
 URL is `ORIGIN/#setup=TOKEN`: the fragment is not sent in the HTTP URL or Referer. The frontend
 removes it and submits it only to the same-origin setup API. Give this bearer link directly to the
 caregiver; do not paste it into shared logs, CI, analytics or tickets. No password is accepted as a
-CLI argument or printed. Passwords (12–128 characters) are chosen on the site. The temporary SQL
-file is created in the repository and removed in `finally`; it contains only the token hash, account
-identifiers and default board, never the raw link token or a password.
+CLI argument or printed. Passwords (12–128 characters) are chosen on the site. SQL is submitted
+using Wrangler's inline query mode so JSON confirmation contains the returned account ID instead of
+file-import progress messages. SQL contains only the token hash, account identifiers and default
+board, never the raw link token or a password.
+
+If an older CLI reports `Unexpected token` while checking file uploads, the database operation may
+already have completed. Update to the corrected CLI and use `reset` with the same username,
+environment and origin to issue a new link; do not delete the account or repeat an invitation
+blindly. If reset reports that the account does not exist, run `invite` instead.
 
 Redeeming either link atomically changes the password, consumes all recovery links and revokes all
 older sessions for that account. Reset preserves the board and revision. An issued but unredeemed
