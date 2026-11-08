@@ -83,16 +83,23 @@ h2 {
   border-radius: 8px;
   padding: 4px 10px;
 }
-.page-navigation {
+.control-button.page-navigation {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 12px;
+  background: #245b86;
+  border-color: #245b86;
 }
 .page-arrow {
-  font-size: clamp(36px, 7dvh, 64px);
-  line-height: 0.8;
-  font-weight: 400;
+  width: clamp(36px, 7dvh, 64px);
+  height: clamp(36px, 7dvh, 64px);
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 main {
   flex: 1;

@@ -300,9 +300,13 @@ describe('standard accessible phrase board', () => {
 
     expect(document.querySelector('.page-indicator')?.textContent).toBe('página 1 de 8');
 
-    expect(button('previous').querySelector('.page-arrow')?.textContent).toBe('‹');
+    expect(button('previous').querySelector('.page-arrow polyline')?.getAttribute('points')).toBe(
+      '16,4 8,12 16,20',
+    );
 
-    expect(button('next').querySelector('.page-arrow')?.textContent).toBe('›');
+    expect(button('next').querySelector('.page-arrow polyline')?.getAttribute('points')).toBe(
+      '8,4 16,12 8,20',
+    );
 
     expect(button('previous').querySelector('.page-arrow')?.getAttribute('aria-hidden')).toBe(
       'true',

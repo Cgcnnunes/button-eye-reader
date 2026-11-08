@@ -94,6 +94,8 @@ available. No face images or recordings are needed for testing.
 - [ ] Catalogue has four choices/page; first/last navigation disables correctly.
 - [ ] Saved-phrase navigation shows large left/right arrows and a highlighted current-page label;
       labels update on navigation and arrow decorations do not change accessible button names.
+- [ ] Pagination arrows and text share a vertical center; previous/next use a distinct blue while
+      the return control keeps its original color.
 - [ ] Navigate, select and replace phrases with native input; reload and confirm persistence.
 - [ ] Caregiver additions persist; empty/duplicate/overlong input is rejected and text is literal.
       The caregiver manages system tracking if needed during writing.

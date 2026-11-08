@@ -2,6 +2,7 @@
 
 ## 0.4.1
 
+- Use vertically centered vector pagination arrows and a distinct blue for previous/next controls.
 - Clarify saved-phrase navigation, add large directional pagination arrows and highlight the current
   catalogue page.
 - Remove catalogue action subtitles so phrase text remains centered without extra labels.

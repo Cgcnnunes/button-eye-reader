@@ -142,13 +142,21 @@ function makeButton(
   if (action === 'previous' || action === 'next') {
     button.classList.add('page-navigation');
 
-    const arrow = document.createElement('span');
+    const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
 
-    arrow.className = 'page-arrow';
+    arrow.setAttribute('class', 'page-arrow');
 
     arrow.setAttribute('aria-hidden', 'true');
 
-    arrow.textContent = action === 'previous' ? '‹' : '›';
+    arrow.setAttribute('viewBox', '0 0 24 24');
+
+    arrow.setAttribute('focusable', 'false');
+
+    const chevron = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+
+    chevron.setAttribute('points', action === 'previous' ? '16,4 8,12 16,20' : '8,4 16,12 8,20');
+
+    arrow.append(chevron);
 
     if (action === 'previous') button.prepend(arrow);
     else button.append(arrow);
