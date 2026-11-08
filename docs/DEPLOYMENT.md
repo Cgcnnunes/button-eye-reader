@@ -124,7 +124,7 @@ Authenticate directly on GitHub/Cloudflare login pages, not through chat.
 After creating both Workers and configuring secrets, URLs and approvals, squash-merge the workflow
 PR. Under **Actions -> Deploy to TEST** (`deploy-to-test.yml`), confirm:
 
-1. Checkout of the squash SHA, `npm run verify` and successful `Validate` for the same main commit.
+1. Checkout of the squash SHA and successful `npm run verify` inside the TEST workflow itself.
 2. Deployment with `--env test`, with no PROD deployment.
 3. TEST URL smoke tests: `release.json` with SHA/tag, exact HTML/model/WASM bytes, WASM MIME type
    and security headers.
@@ -148,8 +148,8 @@ acceptance. Use [TESTING.md](TESTING.md) with non-confidential test phrases.
    without provenance are ineligible. Check **`test_approved`** to confirm testing of that SHA/tag;
    without confirmation, the workflow fails before deployment.
 3. The first job validates tag/ancestry on main, manifest versions, prerelease status, the exact
-   successful TEST attempt, the latest successful `Validate` for that SHA, and artifact ID/digest
-   and validity. It also rejects versions equal to or below the latest stable release.
+   successful TEST attempt (including its code verification), and artifact ID/digest and validity.
+   It also rejects versions equal to or below the latest stable release.
 4. Review and approve the `production` environment if configured. Validation is repeated after
    approval to detect changes during the wait.
 5. The job downloads the original ZIP, checks SHA-256 and the marker, deploys with
@@ -159,9 +159,15 @@ acceptance. Use [TESTING.md](TESTING.md) with non-confidential test phrases.
 ### Workflow concurrency
 
 `execute-pr-validation.yml` groups runs by PR number: a new push or other validation event for that
-PR cancels its previous run. Different PRs remain independent. Main push validation uses the commit
-SHA and is not canceled by later pushes, because TEST requires successful validation of its exact
-SHA.
+PR cancels its previous run. Different PRs remain independent. This workflow runs only for PRs
+targeting main, not for pushes to main.
+
+There are exactly three workflows. PR validation and TEST both install dependencies with `npm ci`
+and run `npm run verify` (format, lint, coverage tests, type-check and build). PR validation also
+runs `npm run repo:check` for PR policy; TEST checks the merged squash/release policy instead. TEST
+does not wait for or query a separate PR/main validation run. The shared command already owns the
+verification sequence, so a fourth reusable workflow is unnecessary for these few steps. PROD
+verifies the successful TEST run and its artifact instead of rebuilding the tested site.
 
 TEST and PROD each have their own concurrency group, `cancel-in-progress: false` and `queue: max`.
 Only one run per environment executes at a time; up to 100 additional runs wait rather than replace
@@ -170,10 +176,23 @@ simultaneously because they deploy different Workers.
 
 GitHub processes waiting runs in FIFO order by the time they enter the concurrency queue, not
 necessarily dispatch/merge order. Confirm TEST completion and the exact tested SHA before promotion.
-Do not push directly to `main`: that can run validation but does not produce an eligible TEST
+Do not push directly to `main`: it bypasses PR validation and does not produce an eligible TEST
 prerelease.
 
 ## 6. Troubleshooting
+
+Workflows use `actions/checkout@v5` and `actions/setup-node@v5` (Node 24 action runtime), while
+application tooling still uses `.nvmrc`. Runners are pinned to `ubuntu-24.04` to avoid changes to
+the `ubuntu-latest` image. These are separate from the application's Node version.
+
+Release validation accepts the PR title with or without GitHub's exact ` (#<PR-number>)` squash
+suffix. A different suffix/title is rejected. Merged-PR workflow and artifact metadata identifies
+the feature branch/head SHA, not the checked-out squash SHA. Provenance records both and PROD
+verifies the merged PR through GitHub, linking its feature SHA to the exact tagged squash commit. An
+old workflow rerun uses its original code; merge this fix and test the new run instead.
+
+If TEST credentials are empty, configure `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` and
+`DEPLOYMENT_URL` in the `test` GitHub environment. Repository changes cannot supply missing secrets.
 
 Read **GitHub Actions logs** for validation, installation, build and deployment. Browser-console
 warnings from the Cloudflare dashboard are not necessarily application failures.

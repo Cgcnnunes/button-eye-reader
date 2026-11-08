@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import type { DeploymentProof } from './deployment-policy.ts';
 import {
   assertEvidence,
+  assertMergedPullRequest,
   deploymentRecord,
   deploymentUrl,
   integer,
@@ -18,6 +19,12 @@ import { git } from './git.ts';
 import { assertLockVersion, latestVersion } from './policy.ts';
 
 export function required(name: string): string {
+  if (!process.env[name]) {
+    throw new Error(
+      `Missing required environment setting: ${name}. Configure the GitHub environment.`,
+    );
+  }
+
   return text(process.env[name]);
 }
 
@@ -71,43 +78,6 @@ export async function previousStable(): Promise<string | undefined> {
   return releaseTag(release.tag_name);
 }
 
-export async function successfulValidation(sha: string, wait = false): Promise<void> {
-  for (let attempt = 0; attempt < (wait ? 120 : 1); attempt += 1) {
-    const response = object(
-      await api(
-        `/actions/workflows/execute-pr-validation.yml/runs?event=push&head_sha=${sha}&per_page=10`,
-      ),
-    );
-
-    if (!Array.isArray(response.workflow_runs)) {
-      throw new Error('GitHub did not return main validation workflow runs.');
-    }
-
-    const latest = response.workflow_runs[0] as unknown;
-    const run = latest === undefined ? null : object(latest);
-
-    if (run && (run.head_sha !== sha || run.head_branch !== 'main' || run.event !== 'push')) {
-      throw new Error('Main validation run does not match the tested commit.');
-    }
-
-    if (run?.status === 'completed') {
-      if (run.conclusion !== 'success') {
-        throw new Error(
-          'Latest main Validate workflow failed; no prerelease or promotion allowed.',
-        );
-      }
-
-      return;
-    }
-
-    if (!wait || attempt === 119) {
-      throw new Error('Main Validate workflow must complete successfully before release.');
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 5000));
-  }
-}
-
 export async function validate(): Promise<{
   proof: DeploymentProof;
   release: Record<string, unknown>;
@@ -140,7 +110,7 @@ export async function validate(): Promise<{
 
   assertEvidence(tag, sha, release, run, artifact);
 
-  await successfulValidation(sha);
+  assertMergedPullRequest(await api(`/pulls/${proof.pr}`), proof);
 
   const pkg = object(JSON.parse(git('show', `${sha}:package.json`)) as unknown);
 

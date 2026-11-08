@@ -1,14 +1,6 @@
 import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  api,
-  download,
-  previousStable,
-  promote,
-  smoke,
-  successfulValidation,
-  validate,
-} from '../scripts/deployment.ts';
+import { api, download, previousStable, promote, smoke, validate } from '../scripts/deployment.ts';
 
 const mocks = vi.hoisted(() => ({
   append: vi.fn(),
@@ -35,7 +27,10 @@ const archive = Buffer.from('Immutable zip fixture');
 const proof = {
   artifact: 12,
   attempt: 1,
+  branch: 'reader-00003',
   digest: `sha256:${createHash('sha256').update(archive).digest('hex')}`,
+  head: 'c'.repeat(40),
+  pr: 3,
   run: 34,
   sha,
   url: 'https://button-eye-reader-test.example.workers.dev',
@@ -53,8 +48,8 @@ const release = {
 const run = {
   conclusion: 'success',
   event: 'pull_request',
-  head_branch: 'main',
-  head_sha: sha,
+  head_branch: proof.branch,
+  head_sha: proof.head,
   id: proof.run,
   path: '.github/workflows/deploy-to-test.yml',
   run_attempt: proof.attempt,
@@ -65,18 +60,21 @@ const artifact = {
   expired: false,
   id: proof.artifact,
   name: 'tested-site-34-1',
-  workflow_run: { head_sha: sha, id: proof.run },
-};
-const validation = {
-  conclusion: 'success',
-  event: 'push',
-  head_branch: 'main',
-  head_sha: sha,
-  status: 'completed',
+  workflow_run: { head_sha: proof.head, id: proof.run },
 };
 const marker = `${JSON.stringify({ sha, tag: 'v0.1.1' })}\n`;
 
 function reply(path: string): Response {
+  if (path.endsWith('/pulls/3')) {
+    return Response.json({
+      base: { ref: 'main', repo: { full_name: 'example/reader' } },
+      head: { ref: proof.branch, repo: { full_name: 'example/reader' }, sha: proof.head },
+      merge_commit_sha: sha,
+      merged: true,
+      number: 3,
+    });
+  }
+
   if (path.includes('/releases/tags/')) {
     return Response.json(release);
   }
@@ -91,10 +89,6 @@ function reply(path: string): Response {
 
   if (path.endsWith('/actions/artifacts/12/zip')) {
     return new Response(archive);
-  }
-
-  if (path.includes('/actions/workflows/execute-pr-validation.yml/runs?')) {
-    return Response.json({ workflow_runs: [validation] });
   }
 
   if (path.endsWith('/releases/latest')) {
@@ -158,10 +152,16 @@ describe('deployment API, artifact and promotion orchestration', () => {
     );
   });
 
-  it('validates tag ancestry, package version, TEST run, artifact and main CI', async () => {
+  it('validates tag ancestry, package version, successful TEST run and artifact independently', async () => {
     expect((await validate()).proof).toEqual(proof);
 
     expect(mocks.git).toHaveBeenCalledWith('merge-base', '--is-ancestor', sha, 'origin/main');
+
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.some(([url]) => typeof url === 'string' && url.includes('/actions/workflows/')),
+    ).toBe(false);
   });
 
   it('requires explicit human acceptance and dispatch from the trusted main workflow', async () => {
@@ -279,20 +279,22 @@ describe('deployment API, artifact and promotion orchestration', () => {
     await expect(api('/releases')).rejects.toThrow('repository');
   });
 
-  it('blocks failed, missing and unrelated main CI runs', async () => {
+  it('blocks failed, missing and unrelated TEST runs', async () => {
     for (const data of [
+      null,
       {},
-      { workflow_runs: [] },
-      { workflow_runs: [{ ...validation, conclusion: 'failure' }] },
-      { workflow_runs: [{ ...validation, head_sha: 'other' }] },
-      { workflow_runs: [{ ...validation, status: 'in_progress' }] },
+      { ...run, conclusion: 'failure' },
+      { ...run, head_sha: 'other' },
+      { ...run, status: 'in_progress' },
     ]) {
       vi.stubGlobal(
         'fetch',
-        vi.fn(() => Promise.resolve(Response.json(data))),
+        vi.fn((url: string) =>
+          Promise.resolve(url.endsWith('/actions/runs/34') ? Response.json(data) : reply(url)),
+        ),
       );
 
-      await expect(successfulValidation(sha)).rejects.toThrow();
+      await expect(validate()).rejects.toThrow();
     }
   });
 

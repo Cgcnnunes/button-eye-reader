@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({
   git: vi.fn<(...args: string[]) => string>(),
   previousStable: vi.fn(),
   read: vi.fn(),
-  validation: vi.fn(),
   write: vi.fn(),
 }));
 
@@ -33,7 +32,6 @@ vi.mock('../scripts/deployment.ts', () => ({
 
     return value;
   },
-  successfulValidation: mocks.validation,
 }));
 
 const sha = 'a'.repeat(40);
@@ -42,7 +40,7 @@ const event = {
   pull_request: {
     base: { ref: 'main' },
     body: '- [ ] major\n- [x] minor\n- [ ] patch',
-    head: { ref: 'reader-00002' },
+    head: { ref: 'reader-00002', sha: 'c'.repeat(40) },
     merge_commit_sha: sha,
     merged: true,
     number: 2,
@@ -79,6 +77,7 @@ describe('TEST prerelease creation and retry orchestration', () => {
       CLOUDFLARE_ACCOUNT_ID: 'account',
       CLOUDFLARE_API_TOKEN: 'test-token',
       DEPLOYMENT_OUTPUT: 'deploy.jsonl',
+      DEPLOYMENT_URL: 'https://button-eye-reader-test.example.workers.dev',
       GITHUB_EVENT_PATH: 'event.json',
       GITHUB_REPOSITORY: 'example/reader',
       GITHUB_RUN_ATTEMPT: '1',
@@ -129,8 +128,6 @@ describe('TEST prerelease creation and retry orchestration', () => {
       return '';
     });
 
-    mocks.validation.mockResolvedValue(undefined);
-
     mocks.previousStable.mockResolvedValue('v0.1.0');
 
     mocks.api.mockImplementation((path: string) =>
@@ -146,8 +143,6 @@ describe('TEST prerelease creation and retry orchestration', () => {
 
   it('prepares the release marker without creating a tag or prerelease', async () => {
     await run('prepare');
-
-    expect(mocks.validation).toHaveBeenCalledWith(sha, true);
 
     expect(mocks.write).toHaveBeenCalledWith(
       'dist/release.json',
@@ -175,20 +170,64 @@ describe('TEST prerelease creation and retry orchestration', () => {
     expect(mocks.api).toHaveBeenCalledWith(
       '/releases',
       'POST',
-      expect.objectContaining({
-        make_latest: 'false',
-        prerelease: true,
-        tag_name: 'v0.2.0',
-      }),
+      expect.objectContaining({ make_latest: 'false', prerelease: true, tag_name: 'v0.2.0' }),
     );
 
     expect(JSON.stringify(mocks.api.mock.calls)).toContain('<!-- tested-deployment');
   });
 
-  it('does not create tags or releases if main validation or deployment output fails', async () => {
-    mocks.validation.mockRejectedValue(new Error('Main validation failed'));
+  it('accepts only the exact GitHub squash PR-number suffix', async () => {
+    const original = mocks.git.getMockImplementation();
 
-    await expect(run('publish')).rejects.toThrow('Main validation failed');
+    if (!original) {
+      throw new Error('Missing Git fixture implementation.');
+    }
+
+    mocks.git.mockImplementation((...args: string[]) =>
+      args[0] === 'show' && args.includes('--format=%s')
+        ? `${event.pull_request.title} (#2)`
+        : original(...args),
+    );
+
+    await run('prepare');
+
+    expect(mocks.write).toHaveBeenCalled();
+  });
+
+  it('rejects a squash suffix for a different PR', async () => {
+    const original = mocks.git.getMockImplementation();
+
+    if (!original) {
+      throw new Error('Missing Git fixture implementation.');
+    }
+
+    mocks.git.mockImplementation((...args: string[]) =>
+      args[0] === 'show' && args.includes('--format=%s')
+        ? `${event.pull_request.title} (#99)`
+        : original(...args),
+    );
+
+    await expect(run('prepare')).rejects.toThrow('exact GitHub PR-number');
+  });
+
+  it('does not create tags or releases if deployment output is invalid', async () => {
+    mocks.read.mockImplementation((path: string) => {
+      if (path === 'event.json') {
+        return JSON.stringify(event);
+      }
+
+      if (path === 'package.json') {
+        return JSON.stringify({ version: '0.2.0' });
+      }
+
+      if (path === 'package-lock.json') {
+        return JSON.stringify({ packages: { '': { version: '0.2.0' } }, version: '0.2.0' });
+      }
+
+      return '';
+    });
+
+    await expect(run('publish')).rejects.toThrow('deploy record');
 
     expect(mocks.git.mock.calls.some((args) => args[0] === 'push')).toBe(false);
   });

@@ -1,6 +1,13 @@
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
-import { deploymentRecord, integer, object, parseProof, text } from './deployment-policy.ts';
-import { api, previousStable, required, successfulValidation } from './deployment.ts';
+import {
+  deploymentRecord,
+  deploymentUrl,
+  integer,
+  object,
+  parseProof,
+  text,
+} from './deployment-policy.ts';
+import { api, previousStable, required } from './deployment.ts';
 import { git, lines } from './git.ts';
 import {
   assertDocumentation,
@@ -16,7 +23,7 @@ interface MergedEvent {
   pull_request: {
     base: { ref: string };
     body: string | null;
-    head: { ref: string };
+    head: { ref: string; sha: string };
     merge_commit_sha: string;
     merged: boolean;
     number: number;
@@ -50,11 +57,11 @@ const sha = git('rev-parse', 'HEAD');
 
 if (
   sha !== pr.merge_commit_sha ||
-  git('show', '-s', '--format=%s', sha) !== pr.title ||
+  ![pr.title, `${pr.title} (#${pr.number})`].includes(git('show', '-s', '--format=%s', sha)) ||
   git('show', '-s', '--format=%P', sha).split(' ').length !== 1
 ) {
   throw new Error(
-    'Release requires a squash merge whose commit subject exactly matches the validated PR title.',
+    'Release requires the validated PR title, optionally followed by its exact GitHub PR-number suffix, on a squash merge.',
   );
 }
 
@@ -93,7 +100,7 @@ if (command === 'prepare') {
 
   required('CLOUDFLARE_API_TOKEN');
 
-  await successfulValidation(sha, true);
+  deploymentUrl(required('DEPLOYMENT_URL'));
 
   if (exists) {
     const existing = await api(`/releases/tags/${tag}`);
@@ -111,13 +118,14 @@ if (command === 'prepare') {
 
   console.log(`Prepared ${tag} at ${sha} for TEST; no tag or release created.`);
 } else {
-  await successfulValidation(sha);
-
   const deployment = deploymentRecord(readFileSync(required('DEPLOYMENT_OUTPUT'), 'utf8'), 'test');
   const proof = {
     artifact: integer(Number(required('ARTIFACT_ID'))),
     attempt: integer(Number(required('GITHUB_RUN_ATTEMPT'))),
+    branch: pr.head.ref,
     digest: `sha256:${required('ARTIFACT_DIGEST')}`,
+    head: pr.head.sha,
+    pr: pr.number,
     run: integer(Number(required('GITHUB_RUN_ID'))),
     sha,
     ...deployment,

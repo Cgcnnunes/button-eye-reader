@@ -48,16 +48,19 @@ wait; do not invent a version or overwrite a tag.
 
 ## Automatic TEST prerelease after merge
 
-`execute-pr-validation.yml` cancels older validation runs for the same PR after a new push. Main
-validation is isolated by commit SHA and is not canceled by subsequent main pushes. Each deployment
-workflow serializes its own environment with `queue: max` and no cancellation of active runs. Up to
-100 runs wait; excess runs are canceled. TEST and PROD have independent queues. Queue order follows
-entry into the concurrency group, not guaranteed merge/dispatch order.
+`execute-pr-validation.yml` runs only for PRs targeting main and cancels older runs of that PR after
+a new push. PR validation and TEST each run `npm ci` and `npm run verify` independently; PR policy
+and merged-release policy remain specific to their respective workflows. The shared verification
+command avoids duplicating the check sequence; no additional reusable workflow is needed. Each
+deployment workflow serializes its own environment with `queue: max` and no cancellation of active
+runs. Up to 100 runs wait; excess runs are canceled. TEST and PROD have independent queues. Queue
+order follows entry into the concurrency group, not guaranteed merge/dispatch order.
 
 `deploy-to-test.yml` handles a **merged PR to main**, checks out its squash SHA, runs full
-verification and waits for successful main `Validate`, then:
+verification inside that workflow without waiting for a separate validation workflow, then:
 
-- verifies a one-parent squash commit whose subject exactly equals the PR title;
+- verifies a one-parent squash commit whose subject equals the PR title, optionally followed by
+  GitHub's exact ` (#<PR-number>)` suffix; other title changes are rejected;
 - checks documentation changed and the selected semantic version;
 - deploys only `button-eye-reader-test` and verifies public assets, marker and headers;
 - stores the exact static build as an immutable Actions artifact with 90-day retention;
@@ -80,8 +83,8 @@ main is the workflow control plane, not the deployment source. Explicitly confir
 an unchecked confirmation or dispatch from another ref fails before publishing.
 
 The workflow requires an annotated tag on main, matching manifest versions and TEST provenance, the
-exact successful TEST attempt, successful main CI, and an unexpired artifact with its original
-ID/digest. It blocks stable releases and downgrades. After environment approval it repeats
+exact successful TEST attempt including its code verification, and an unexpired artifact with its
+original ID/digest. It blocks stable releases and downgrades. After environment approval it repeats
 validation, downloads and hashes the exact original ZIP, and deploys the tested static files without
 a build. Only after PROD smoke tests does it mark that same release stable/latest. Generated notes
 and the tag SHA are retained.

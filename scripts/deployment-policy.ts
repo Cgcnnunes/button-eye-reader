@@ -1,7 +1,10 @@
 export interface DeploymentProof {
   artifact: number;
   attempt: number;
+  branch: string;
   digest: string;
+  head: string;
+  pr: number;
   run: number;
   sha: string;
   url: string;
@@ -72,7 +75,10 @@ export function parseProof(body: unknown): DeploymentProof {
   const proof = {
     artifact: integer(value.artifact),
     attempt: integer(value.attempt),
+    branch: text(value.branch),
     digest: text(value.digest),
+    head: text(value.head),
+    pr: integer(value.pr),
     run: integer(value.run),
     sha: text(value.sha),
     url: deploymentUrl(value.url),
@@ -83,6 +89,8 @@ export function parseProof(body: unknown): DeploymentProof {
   if (
     !/^sha256:[a-f0-9]{64}$/.test(proof.digest) ||
     !/^[a-f0-9]{40}$/.test(proof.sha) ||
+    !/^[a-f0-9]{40}$/.test(proof.head) ||
+    !/^reader-\d{5}$/.test(proof.branch) ||
     !/^[a-f0-9-]{36}$/.test(proof.version) ||
     proof.worker !== 'button-eye-reader-test'
   ) {
@@ -120,8 +128,8 @@ export function assertEvidence(
     run.run_attempt !== proof.attempt ||
     run.path !== '.github/workflows/deploy-to-test.yml' ||
     run.event !== 'pull_request' ||
-    run.head_branch !== 'main' ||
-    run.head_sha !== sha ||
+    run.head_branch !== proof.branch ||
+    run.head_sha !== proof.head ||
     run.status !== 'completed' ||
     run.conclusion !== 'success'
   ) {
@@ -134,7 +142,7 @@ export function assertEvidence(
     artifact.expired !== false ||
     artifact.digest !== proof.digest ||
     artifactRun.id !== proof.run ||
-    artifactRun.head_sha !== sha
+    artifactRun.head_sha !== proof.head
   ) {
     throw new Error(
       'TEST artifact is expired, replaced or does not match the successful workflow.',
@@ -142,6 +150,26 @@ export function assertEvidence(
   }
 
   return proof;
+}
+
+export function assertMergedPullRequest(value: unknown, proof: DeploymentProof): void {
+  const pr = object(value);
+  const base = object(pr.base);
+  const head = object(pr.head);
+  const baseRepository = object(base.repo);
+  const headRepository = object(head.repo);
+
+  if (
+    pr.number !== proof.pr ||
+    pr.merged !== true ||
+    pr.merge_commit_sha !== proof.sha ||
+    base.ref !== 'main' ||
+    head.ref !== proof.branch ||
+    head.sha !== proof.head ||
+    baseRepository.full_name !== headRepository.full_name
+  ) {
+    throw new Error('TEST provenance does not match the merged same-repository PR and squash SHA.');
+  }
 }
 
 export function deploymentRecord(
