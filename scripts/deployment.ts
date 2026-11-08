@@ -190,13 +190,22 @@ export async function smoke(environment: string): Promise<void> {
     throw new Error('Configured environment URL does not match the deployed Worker.');
   }
 
-  const headers =
-    environment === 'test'
-      ? {
-          'CF-Access-Client-Id': required('CLOUDFLARE_ACCESS_CLIENT_ID'),
-          'CF-Access-Client-Secret': required('CLOUDFLARE_ACCESS_CLIENT_SECRET'),
-        }
-      : undefined;
+  const accessClientId = process.env.CLOUDFLARE_ACCESS_CLIENT_ID;
+  const accessClientSecret = process.env.CLOUDFLARE_ACCESS_CLIENT_SECRET;
+  let headers: Record<string, string> | undefined;
+
+  if (environment === 'test' && (accessClientId || accessClientSecret)) {
+    if (!accessClientId || !accessClientSecret) {
+      throw new Error(
+        'Configure both Cloudflare Access service token secrets or leave both unset.',
+      );
+    }
+
+    headers = {
+      'CF-Access-Client-Id': accessClientId,
+      'CF-Access-Client-Secret': accessClientSecret,
+    };
+  }
 
   async function request(path: string, timeout: number): Promise<Response> {
     const response = await fetch(`${url}${path}`, {
@@ -214,7 +223,9 @@ export async function smoke(environment: string): Promise<void> {
       throw new Error(
         `Deployment smoke request rejected (${environment}, ${response.status}). ${
           environment === 'test'
-            ? 'Check Cloudflare Access service token secrets and the Service Auth policy.'
+            ? headers
+              ? 'Check Cloudflare Access service token secrets and the Service Auth policy.'
+              : 'Check the TEST URL and any unexpected Cloudflare Access policy.'
             : 'PROD must be publicly accessible without Cloudflare Access or redirects.'
         }`,
       );

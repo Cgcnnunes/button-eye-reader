@@ -63,12 +63,12 @@ successful. `release.json` identifies the deployed SHA/tag. PR and TEST independ
 `npm run verify` command; PR validation runs only on PR events. TEST does not depend on a separate
 validation run. PROD checks the exact successful TEST workflow attempt (including verification) and
 immutable artifact ZIP digest, without recompiling. TEST/PROD use different origins, so phrase
-storage is independent. Cloudflare Access protects TEST: human testers sign in and the TEST
-smoke-test step uses a separate service token from GitHub environment secrets. Every TEST request
-authenticates without following redirects; PROD smoke tests remain public and never send Access
-credentials. Secrets are not exposed to browser code or build artifacts. Smoke tests verify exact
-asset bytes and headers, not physical-device acceptance. Failure after a Cloudflare deployment can
-leave that version live even if the GitHub release update fails; there is no cross-provider
+storage is independent. TEST may optionally be protected by Cloudflare Access. When configured, the
+TEST smoke-test step uses a service token from GitHub environment secrets; otherwise it makes
+unauthenticated requests. Smoke tests do not follow redirects; PROD remains public and never sends
+Access credentials. Secrets are not exposed to browser code or build artifacts. Smoke tests verify
+exact asset bytes and headers, not physical-device acceptance. Failure after a Cloudflare deployment
+can leave that version live even if the GitHub release update fails; there is no cross-provider
 transaction.
 
 The storage schema's `version: 1` is **not** the application semantic version. Do not bump the

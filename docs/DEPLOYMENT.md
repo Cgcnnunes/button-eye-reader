@@ -52,9 +52,9 @@ PROD: https://button-eye-reader.<account-subdomain>.workers.dev
 Copy actual URLs from the dashboard instead of guessing or reusing a previously deleted Worker's
 URL.
 
-- Protect TEST with Cloudflare Access using the setup below; keep PROD publicly accessible without
-  Access. TEST smoke tests authenticate with a service token; PROD smoke tests send no Access
-  credentials. Do not use confidential test phrases.
+- Cloudflare Access protection for TEST is optional; keep PROD publicly accessible without Access.
+  If TEST is protected, configure the service-token settings below. Do not use confidential test
+  phrases.
 - Confirm names in `wrangler.jsonc`: `env.test.name` is `button-eye-reader-test`;
   `env.production.name` is `button-eye-reader`. `workers_dev: true` and `preview_urls: false` are
   explicit; TEST uses a stable address rather than a version-specific Preview URL.
@@ -119,26 +119,19 @@ Node comes from `.nvmrc` through `actions/setup-node`; Workers Builds no longer 
 scripts to prepare model/WASM. PROD intentionally runs `npm ci --ignore-scripts`: it installs
 tooling and reuses TEST's `dist`, without rebuilding assets.
 
-### Protect TEST with Cloudflare Access
+### Optional: protect TEST with Cloudflare Access
 
-1. Keep the TEST Worker's `workers.dev` route enabled. In its **Settings -> Domains & Routes**,
-   enable/manage Cloudflare Access for that hostname. In **Zero Trust -> Access -> Applications**,
-   confirm the application covers the exact TEST hostname and all paths, including `release.json`
-   and `vision/`. Do not protect the PROD hostname.
-2. Configure an **Allow** policy for the approved tester's email or identity provider. Keep this
-   human login policy so you can open TEST in Safari on the iPad. Do not add an Everyone/BYPASS
-   policy.
-3. Open **Zero Trust -> Access -> Service Auth -> Service Tokens** and create
-   **`button-eye-reader-test-ci`** with an appropriate expiration. Menu wording may vary.
-4. Copy the generated **Client ID** and **Client Secret** directly into GitHub **Settings ->
-   Environments -> test -> Environment secrets** as **`CLOUDFLARE_ACCESS_CLIENT_ID`** and
-   **`CLOUDFLARE_ACCESS_CLIENT_SECRET`**, respectively. Save the secret immediately; it may only be
-   displayed once. These are separate from the deployment API token.
-5. In the Access application protecting TEST, add a policy named **`GitHub Actions TEST`** with
-   action **Service Auth** and **Include -> Service Token -> button-eye-reader-test-ci**. Keep the
-   separate human Allow policy. An Allow policy alone does not authorize token-only CI requests.
-6. Open TEST in a private browser window and confirm it requires login and permits the approved
-   tester after login. Confirm PROD remains accessible without login.
+If you enable Access for TEST, make sure its application covers the TEST hostname and all paths. In
+Cloudflare **Zero Trust -> Access controls -> Applications**, configure that application. Create a
+token under **Access controls -> Service credentials -> Service Tokens**, then add a policy with
+action **Service Auth** and **Include -> Service Token** selecting that token. An **Allow** policy
+does not authorize service-token requests.
+
+Store the token's Client ID and Client Secret as `CLOUDFLARE_ACCESS_CLIENT_ID` and
+`CLOUDFLARE_ACCESS_CLIENT_SECRET` secrets in the GitHub **`test`** environment. The TEST smoke
+checks send these headers when both secrets are set, and fail if only one is set. If TEST is not
+protected with Access, leave both secrets unset. Keep PROD public; its smoke checks never send
+Access credentials.
 
 Required GitHub environment settings:
 
@@ -147,18 +140,16 @@ Required GitHub environment settings:
 | `CLOUDFLARE_ACCOUNT_ID`           | Secret   | Selected Cloudflare account ID    | Selected Cloudflare account ID    |
 | `CLOUDFLARE_API_TOKEN`            | Secret   | TEST deployment API token         | PROD deployment API token         |
 | `DEPLOYMENT_URL`                  | Variable | TEST root HTTPS `workers.dev` URL | PROD root HTTPS `workers.dev` URL |
-| `CLOUDFLARE_ACCESS_CLIENT_ID`     | Secret   | Access service token Client ID    | Not configured                    |
-| `CLOUDFLARE_ACCESS_CLIENT_SECRET` | Secret   | Access service token secret       | Not configured                    |
+| `CLOUDFLARE_ACCESS_CLIENT_ID`     | Secret   | Optional: Access service token ID | Not configured                    |
+| `CLOUDFLARE_ACCESS_CLIENT_SECRET` | Secret   | Optional: Access service token    | Not configured                    |
 
 The TEST workflow exposes Access secrets **only to its smoke-test step**, not installation,
-validation or bundling. Every TEST smoke request, including marker retries and model/WASM checks,
-sends `CF-Access-Client-Id` and `CF-Access-Client-Secret`. Both secrets are required. Requests do
-not follow redirects, preventing credentials from being forwarded to another hostname. PROD never
-sends these headers, even if Access secrets are accidentally present. No Access secrets belong in
-browser code, static assets, release provenance or logs.
+validation or bundling. When configured, both headers are sent on every TEST smoke request,
+including marker retries and model/WASM checks. Requests do not follow redirects, preventing
+credentials from being forwarded to another hostname. No Access secrets belong in browser code,
+static assets, release provenance or logs.
 
-Rotate expired/revoked service tokens and update both TEST secrets and the application's Service
-Auth policy. Creating secrets/policies requires owner action in GitHub/Cloudflare; committing the
+Creating or rotating secrets and policies requires owner action in GitHub/Cloudflare; committing the
 workflow does not configure either provider. Local development does not need Access credentials.
 
 Never share deployment tokens, Access client secrets, screenshots containing secrets or
@@ -166,13 +157,13 @@ deployment-hook URLs. Authenticate directly on GitHub/Cloudflare login pages, no
 
 ## 4. First merge and TEST acceptance
 
-After creating both Workers and configuring secrets, URLs and approvals, squash-merge the workflow
-PR. Under **Actions -> Deploy to TEST** (`deploy-to-test.yml`), confirm:
+After creating both Workers and configuring deployment secrets, URLs and approvals, squash-merge the
+workflow PR. Under **Actions -> Deploy to TEST** (`deploy-to-test.yml`), confirm:
 
 1. Checkout of the squash SHA and successful `npm run verify` inside the TEST workflow itself.
 2. Deployment with `--env test`, with no PROD deployment.
-3. Access-authenticated TEST URL smoke tests: `release.json` with SHA/tag, exact HTML/model/WASM
-   bytes, WASM MIME type and security headers.
+3. TEST URL smoke tests: `release.json` with SHA/tag, exact HTML/model/WASM bytes, WASM MIME type
+   and security headers. If TEST is protected by Access, confirm the service-token credentials work.
 4. Artifact `tested-site-<run-id>-<attempt>`, retained for 90 days.
 5. An immutable annotated `vX.Y.Z` tag and GitHub prerelease with automatically generated notes
    since the previous stable release, TEST link and run/artifact provenance.
@@ -236,9 +227,10 @@ the feature branch/head SHA, not the checked-out squash SHA. Provenance records 
 verifies the merged PR through GitHub, linking its feature SHA to the exact tagged squash commit. An
 old workflow rerun uses its original code; merge this fix and test the new run instead.
 
-If TEST credentials are empty, configure `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` and
-`DEPLOYMENT_URL`, plus `CLOUDFLARE_ACCESS_CLIENT_ID` and `CLOUDFLARE_ACCESS_CLIENT_SECRET`, in the
-`test` GitHub environment. Repository changes cannot supply missing secrets.
+If TEST deployment settings are empty, configure `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` and
+`DEPLOYMENT_URL` in the `test` GitHub environment. If TEST is protected by Access, also configure
+both `CLOUDFLARE_ACCESS_CLIENT_ID` and `CLOUDFLARE_ACCESS_CLIENT_SECRET`. Repository changes cannot
+supply missing secrets.
 
 Read **GitHub Actions logs** for validation, installation, build and deployment. Browser-console
 warnings from the Cloudflare dashboard are not necessarily application failures.
@@ -258,10 +250,9 @@ warnings from the Cloudflare dashboard are not necessarily application failures.
   `refs/pull/*/merge` to the GitHub `test` environment; checkout of main does not change the event
   ref. Keep `production` restricted to main.
 - **TEST smoke request redirects to Access login or returns 401/403:** deployment may already have
-  succeeded, but smoke checks cannot authenticate. Check both Access secrets, token expiration and
-  the TEST application's **Service Auth** policy selecting that token. Do not disable Access or add
-  a public bypass. Old workflow runs without authentication support retain their original code;
-  merge this change and use the new TEST run rather than rerunning old code.
+  succeeded, but smoke checks cannot authenticate. If TEST is protected, check both Access secrets,
+  token expiration and the application's **Service Auth** policy selecting that token. If TEST is
+  not meant to be protected, check for an unexpected Access policy on its hostname.
 - **Missing model/WASM:** read `postinstall`/`assets` errors, including download and checksum
   failures; do not skip the script.
 - **Test, lint, format or build failure:** reproduce the command locally and fix the root cause

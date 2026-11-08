@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- Make Cloudflare Access optional for TEST; send service-token headers only when both secrets are
+  configured, and document the Service Auth policy setup.
+
 ## 0.2.0
 
 - Authenticate protected TEST smoke checks with a Cloudflare Access service token without exposing
