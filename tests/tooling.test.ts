@@ -6,6 +6,27 @@ import { describe, expect, it } from 'vitest';
 const root = fileURLToPath(new URL('../', import.meta.url));
 
 describe('mandatory lint and hook configuration', () => {
+  it('keeps static TEST and PROD free of custom tracking and report infrastructure', () => {
+    const config = readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
+    const production = config.split('"production": {')[1].split('"test": {')[0];
+    const test = config.split('"test": {')[1];
+
+    expect(production).toContain('"name": "button-eye-reader-prod"');
+
+    expect(test).toContain('"name": "button-eye-reader-test"');
+
+    expect(config).not.toMatch(/r2_buckets|crons|diagnostics|DEPLOYMENT_ENVIRONMENT/);
+
+    const manifest = readFileSync(new URL('../package.json', import.meta.url), 'utf8');
+    const headers = readFileSync(new URL('../public/_headers', import.meta.url), 'utf8');
+
+    expect(manifest).not.toMatch(/mediapipe|jose|prepare-assets|postinstall/);
+
+    expect(headers).toContain('camera=()');
+
+    expect(headers).not.toMatch(/wasm-unsafe-eval|blob:|unsafe-inline/);
+  });
+
   it('cancels superseded PR validation while queueing deployments independently', () => {
     const validation = readFileSync(
       new URL('../.github/workflows/execute-pr-validation.yml', import.meta.url),

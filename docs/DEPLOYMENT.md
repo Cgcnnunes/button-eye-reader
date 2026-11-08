@@ -57,8 +57,8 @@ Configuration checks in `wrangler.jsonc`:
 - Worker names match the table; `workers_dev: true`, `preview_urls: false`.
 - Static assets come from `./dist`.
 - `/` and `/index.html` run through `src/worker.ts`, which serves assets unchanged.
-- Eye diagnostics are enabled locally and in TEST, and temporarily in PROD, without headers. They
-  are not an authentication mechanism.
+- No custom eye-tracking header or website camera permission is needed. Apple Eye Tracking is
+  configured on the iPad independently of TEST/PROD. Optional Access authentication is unchanged.
 
 For another account, update URLs and secrets. For another app, also change Worker names in
 `scripts/deployment-policy.ts` and its tests. Separate Workers do not isolate future shared
@@ -195,10 +195,10 @@ Official guides:
    `release.json` before another merge replaces TEST.
 4. Follow [PROD promotion](RELEASES.md#promote-to-prod) using that exact tested tag.
 5. Confirm PROD's final workflow result, site footer and `release.json`. Verify sound, four phrases,
-   catalogue controls and calibration on the device.
+   catalogue controls and native Eye Tracking on the device.
 
-Smoke checks verify release identity, exact asset bytes, model/WASM responses and security headers.
-They do not prove physical eye-tracking accuracy or Safari speech behavior.
+Smoke checks verify release identity, exact HTML/marker bytes and security headers. They do not
+prove physical eye-tracking accuracy or Safari speech behavior.
 
 ## Troubleshooting
 

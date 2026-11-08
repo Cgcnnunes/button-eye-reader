@@ -238,13 +238,7 @@ export async function smoke(environment: string): Promise<void> {
   }
 
   const marker = readFileSync('dist/release.json', 'utf8');
-  const paths = [
-    '/release.json',
-    '/',
-    '/vision/face_landmarker.task',
-    '/vision/wasm/vision_wasm_internal.wasm',
-    '/vision/wasm/vision_wasm_nosimd_internal.wasm',
-  ];
+  const paths = ['/release.json', '/'];
 
   // A new deployment can take a short time to reach the workers.dev endpoint.
   for (let attempt = 0; attempt < 12; attempt += 1) {
@@ -266,20 +260,14 @@ export async function smoke(environment: string): Promise<void> {
     const type = response.headers.get('content-type') ?? '';
     const bytes = Buffer.from(await response.arrayBuffer());
 
-    if (
-      !response.ok ||
-      (path.endsWith('.wasm') && !type.startsWith('application/wasm')) ||
-      (path.endsWith('.task') && type.includes('text/html')) ||
-      !bytes.equals(readFileSync(`dist${path === '/' ? '/index.html' : path}`))
-    ) {
+    if (!response.ok || !bytes.equals(readFileSync(`dist${path === '/' ? '/index.html' : path}`))) {
       throw new Error(`Deployment asset mismatch: ${path} (${response.status}, ${type}).`);
     }
 
     if (
       path === '/' &&
       (!response.headers.get('content-security-policy')?.includes("frame-ancestors 'none'") ||
-        response.headers.get('permissions-policy') !==
-          'camera=(self), microphone=(), geolocation=()')
+        response.headers.get('permissions-policy') !== 'camera=(), microphone=(), geolocation=()')
     ) {
       throw new Error('Deployment security headers are missing or incorrect.');
     }

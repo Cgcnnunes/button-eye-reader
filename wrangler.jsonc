@@ -5,9 +5,6 @@
   "compatibility_date": "2026-11-07",
   "workers_dev": true,
   "preview_urls": false,
-  "vars": {
-    "DEPLOYMENT_ENVIRONMENT": "development",
-  },
   "assets": {
     "binding": "ASSETS",
     "directory": "./dist",
@@ -18,9 +15,6 @@
   "env": {
     "production": {
       "name": "button-eye-reader-prod",
-      "vars": {
-        "DEPLOYMENT_ENVIRONMENT": "production",
-      },
       "assets": {
         "binding": "ASSETS",
         "directory": "./dist",
@@ -30,9 +24,6 @@
     },
     "test": {
       "name": "button-eye-reader-test",
-      "vars": {
-        "DEPLOYMENT_ENVIRONMENT": "test",
-      },
       "assets": {
         "binding": "ASSETS",
         "directory": "./dist",

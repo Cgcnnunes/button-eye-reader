@@ -134,8 +134,8 @@ function configureSmoke(environment = 'test'): void {
         new Response(marker, {
           headers: {
             'content-security-policy': "frame-ancestors 'none'",
-            'content-type': 'application/wasm',
-            'permissions-policy': 'camera=(self), microphone=(), geolocation=()',
+            'content-type': 'text/html',
+            'permissions-policy': 'camera=(), microphone=(), geolocation=()',
           },
         }),
       ),
@@ -348,7 +348,7 @@ describe('deployment API, artifact and promotion orchestration', () => {
 
     await smoke('test');
 
-    expect(fetch).toHaveBeenCalledTimes(6);
+    expect(fetch).toHaveBeenCalledTimes(3);
 
     for (const [url, options] of vi.mocked(fetch).mock.calls) {
       expect(url).toEqual(expect.stringContaining(`${proof.url}/`));
@@ -384,7 +384,7 @@ describe('deployment API, artifact and promotion orchestration', () => {
 
     await expect(smoke('test')).resolves.toBeUndefined();
 
-    expect(fetch).toHaveBeenCalledTimes(6);
+    expect(fetch).toHaveBeenCalledTimes(3);
 
     for (const [, options] of vi.mocked(fetch).mock.calls) {
       expect(options?.headers).toBeUndefined();
@@ -411,7 +411,7 @@ describe('deployment API, artifact and promotion orchestration', () => {
 
     await smoke('production');
 
-    expect(fetch).toHaveBeenCalledTimes(6);
+    expect(fetch).toHaveBeenCalledTimes(3);
 
     for (const [, options] of vi.mocked(fetch).mock.calls) {
       expect(options?.headers).toBeUndefined();
@@ -492,7 +492,7 @@ describe('deployment API, artifact and promotion orchestration', () => {
 
       await pending;
 
-      expect(fetch).toHaveBeenCalledTimes(7);
+      expect(fetch).toHaveBeenCalledTimes(4);
 
       for (const [, options] of vi.mocked(fetch).mock.calls) {
         expect(options?.headers).toEqual({
