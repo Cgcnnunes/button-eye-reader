@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.3
+
+- Simplify setup, architecture, testing and release guides with diagrams and tables.
+- Update Cloudflare navigation and explain optional browser and automated TEST access policies.
+
 ## 0.3.2
 
 - Enable eye/iris markers and per-target validation diagnostics in TEST and temporarily in PROD
