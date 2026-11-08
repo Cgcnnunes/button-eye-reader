@@ -97,10 +97,11 @@ static apps. **Before enabling workflows, confirm that `main` exists on GitHub a
 branch.** Reload dashboards after saving configuration and verify both Workers and GitHub
 environments; external settings do not change just because YAML changes.
 
-Each squash merge into `main` validates and deploys **TEST only**. Only after success does it create
+Each protected push to `main` validates and deploys **TEST only**. Only after success does it create
 a `vX.Y.Z` tag and GitHub prerelease with generated notes. After testing, dispatch **Deploy to
-PROD** with that tag: it validates provenance and deploys the same artifact without rebuilding, then
-makes the same release stable. See the guide for tokens, URLs and `production` approval setup.
+PROD** from that exact tag: it validates provenance and deploys the same artifact without
+rebuilding, then makes the same release stable. See the guide for tokens, URLs and `production`
+approval setup.
 
 Create both TEST and PROD Workers from scratch using the guide and copy their actual URLs. The
 starter content is replaced only by the respective workflow. Choose the final origin before storing

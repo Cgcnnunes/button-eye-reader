@@ -4,12 +4,14 @@ Guide for developers and AI agents: **GitHub Actions deploys Workers Static Asse
 independent Workers**, starting from an account with no Workers. Workers Builds is not used;
 Cloudflare Pipelines is a data-ingestion product and is not used.
 
-- Squash merge into `main` -> validation -> TEST Worker -> smoke tests -> artifact -> `vX.Y.Z` tag
+- Protected push to `main` -> validation -> TEST Worker -> smoke tests -> artifact -> `vX.Y.Z` tag
   and GitHub **prerelease**, with notes generated since the previous stable release.
-- Dispatch **Deploy to PROD** with that tag -> provenance validation -> environment approval ->
+- Dispatch **Deploy to PROD** from that tag -> provenance validation -> environment approval ->
   download the same artifact -> PROD Worker -> smoke tests -> make the same release stable.
 
-Pushes, merges and tag creation do not deploy PROD. The site is not rebuilt for PROD.
+Pushes, merges and tag creation do not deploy PROD. Any push to `main` deploys TEST, so protect
+`main` with required PRs and checks before making the repository public. The site is not rebuilt for
+PROD.
 
 ## 1. Prerequisites
 
@@ -38,7 +40,7 @@ configured:
    Workers Builds connection or deployment hooks.
 
 The initial contents of **both** Workers are placeholders, not the communication app. The first
-successful merged-PR workflow replaces TEST's starter. PROD keeps its starter until you test that
+successful push-to-main workflow replaces TEST's starter. PROD keeps its starter until you test that
 prerelease and explicitly dispatch PROD promotion.
 
 Expected URL shapes (replace `<account-subdomain>` with the actual value, do not paste
@@ -98,14 +100,14 @@ environment variable** for the URL. In **each environment**, configure:
 Use **environment secrets**, not repository-wide PROD credentials. GitHub supplies `GITHUB_TOKEN`
 automatically; do not create a PAT for these workflows.
 
-For `test`, select **Deployment branches and tags -> Selected branches and tags** and add a
-**Branch** rule **`refs/pull/*/merge`**. The merged-PR event uses this ref even though checkout
-deploys the squash SHA on main; a main-only rule rejects TEST. The job also requires the PR to be
-merged into main. Restrict `production` to **`main`**. For `production`, configure required
-reviewers and prevent self-approval if the GitHub plan supports it. Dispatch uses the workflow from
-`main` as its control plane but deploys only the selected tag's commit. If the plan/repository does
-not support required reviewers, dispatch is still manual, but there is no mandatory second approval.
-Do not claim that protection is active unless configured.
+For `test`, select **Deployment branches and tags -> Selected branches and tags** and allow the
+**`main`** branch. Restrict `production` to **tags matching `v*`** so a branch-selected dispatch
+cannot reach the deployment job. Configure required reviewers for `production` and prevent
+self-approval if the GitHub plan supports it. The PROD workflow must be dispatched from an existing
+release tag; it rejects branch refs and uses the selected tag as its release identifier. The manual
+dispatch checkbox was removed because it was only a self-attestation, not verifiable evidence of
+testing. Required environment reviewers provide an independent human gate; do not claim that
+protection is active unless configured.
 
 Under **Settings -> Actions**, allow the workflows and actions used here. Jobs declare their
 permissions: TEST needs `contents: write` and `actions: read`; PROD uses read permissions for
@@ -158,15 +160,18 @@ deployment-hook URLs. Authenticate directly on GitHub/Cloudflare login pages, no
 ## 4. First merge and TEST acceptance
 
 After creating both Workers and configuring deployment secrets, URLs and approvals, squash-merge the
-workflow PR. Under **Actions -> Deploy to TEST** (`deploy-to-test.yml`), confirm:
+workflow PR. The merge's push to `main` triggers **Actions -> Deploy to TEST**
+(`deploy-to-test.yml`). Confirm:
 
-1. Checkout of the squash SHA and successful `npm run verify` inside the TEST workflow itself.
+1. Checkout of the pushed `main` SHA and successful `npm run verify` inside the TEST workflow
+   itself.
 2. Deployment with `--env test`, with no PROD deployment.
 3. TEST URL smoke tests: `release.json` with SHA/tag, exact HTML/model/WASM bytes, WASM MIME type
    and security headers. If TEST is protected by Access, confirm the service-token credentials work.
 4. Artifact `tested-site-<run-id>-<attempt>`, retained for 90 days.
 5. An immutable annotated `vX.Y.Z` tag and GitHub prerelease with automatically generated notes
-   since the previous stable release, TEST link and run/artifact provenance.
+   since the previous stable release, TEST link and run/artifact provenance. The workflow summary
+   should identify the prerelease version and TEST URL.
 
 Wait for the run to finish successfully, not just for the tag to appear. TEST has a stable URL:
 later merges replace its content, but each prerelease retains its artifact. Test on the iPad and
@@ -179,15 +184,18 @@ acceptance. Use [TESTING.md](TESTING.md) with non-confidential test phrases.
 ## 5. Deploy PROD exclusively by tag
 
 1. Open **Actions -> Deploy to PROD** (`deploy-to-prod.yml`) -> **Run workflow**.
-2. Use the workflow from **`main`** and enter **`tag`**, for example `v0.2.0`, with the TEST
-   prerelease you actually tested. Branches, SHAs, lightweight tags, stable releases and tags
-   without provenance are ineligible. Check **`test_approved`** to confirm testing of that SHA/tag;
-   without confirmation, the workflow fails before deployment.
-3. The first job validates tag/ancestry on main, manifest versions, prerelease status, the exact
+2. Select the tested **`vX.Y.Z` tag** in **Use workflow from**. Do not select a branch. No separate
+   tag input or `test_approved` checkbox is needed; the selected tag is the release identifier. The
+   workflow rejects branch refs, SHAs, lightweight tags, stable releases and tags without
+   provenance. GitHub's documented Run workflow selector is a Branch dropdown; if it does not offer
+   tags in this repository, dispatch the workflow with a tag `ref` through GitHub CLI or API instead
+   of selecting `main`.
+3. The first job validates tag ancestry on main, manifest versions, prerelease status, the exact
    successful TEST attempt (including its code verification), and artifact ID/digest and validity.
-   It also rejects versions equal to or below the latest stable release.
-4. Review and approve the `production` environment if configured. Validation is repeated after
-   approval to detect changes during the wait.
+   It also rejects versions equal to or below the latest stable release. A branch-selected dispatch
+   may start a validation job, but it fails before reaching PROD.
+4. A required reviewer approves the `production` environment. Validation is repeated after approval
+   to detect changes during the wait.
 5. The job downloads the original ZIP, checks SHA-256 and the marker, deploys with
    `--env production` and checks the PROD URL. **It does not run Vite or recompile the site.**
 6. Only afterwards does the same GitHub release become stable/latest. The tag remains unchanged.
@@ -212,8 +220,9 @@ simultaneously because they deploy different Workers.
 
 GitHub processes waiting runs in FIFO order by the time they enter the concurrency queue, not
 necessarily dispatch/merge order. Confirm TEST completion and the exact tested SHA before promotion.
-Do not push directly to `main`: it bypasses PR validation and does not produce an eligible TEST
-prerelease.
+Protect `main` with required PRs, squash-only merges and the validation check: every push to `main`
+triggers TEST, including a direct push. Human-test the exact prerelease tag/SHA before it is
+overwritten by a later push.
 
 ## 6. Troubleshooting
 
@@ -222,10 +231,10 @@ application tooling still uses `.nvmrc`. Runners are pinned to `ubuntu-24.04` to
 the `ubuntu-latest` image. These are separate from the application's Node version.
 
 Release validation accepts the PR title with or without GitHub's exact ` (#<PR-number>)` squash
-suffix. A different suffix/title is rejected. Merged-PR workflow and artifact metadata identifies
-the feature branch/head SHA, not the checked-out squash SHA. Provenance records both and PROD
-verifies the merged PR through GitHub, linking its feature SHA to the exact tagged squash commit. An
-old workflow rerun uses its original code; merge this fix and test the new run instead.
+suffix. A different suffix/title is rejected. The TEST push workflow looks up the merged PR
+associated with the pushed squash commit and records both the PR head and deployed SHA in its
+provenance. PROD verifies that association through GitHub. An old workflow rerun uses its original
+code; merge this fix and test the new run instead.
 
 If TEST deployment settings are empty, configure `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` and
 `DEPLOYMENT_URL` in the `test` GitHub environment. If TEST is protected by Access, also configure
@@ -246,9 +255,8 @@ warnings from the Cloudflare dashboard are not necessarily application failures.
   `actions/setup-node`.
 - **Deployment authentication/permission error:** check account, token validity and token selection.
   Correct only the permission identified in the logs.
-- **TEST environment rejects `refs/pull/<number>/merge`:** add the selected Branch rule
-  `refs/pull/*/merge` to the GitHub `test` environment; checkout of main does not change the event
-  ref. Keep `production` restricted to main.
+- **TEST environment rejects `main`:** allow the `main` branch in the GitHub `test` environment.
+  Keep `production` restricted to tags matching `v*`.
 - **TEST smoke request redirects to Access login or returns 401/403:** deployment may already have
   succeeded, but smoke checks cannot authenticate. If TEST is protected, check both Access secrets,
   token expiration and the application's **Service Auth** policy selecting that token. If TEST is

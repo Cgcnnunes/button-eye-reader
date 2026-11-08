@@ -46,7 +46,7 @@ after another PR merges/releases. Existing prerelease tags also consume version 
 reuse them just because they have not reached PROD. If the previous TEST workflow has not finished,
 wait; do not invent a version or overwrite a tag.
 
-## Automatic TEST prerelease after merge
+## Automatic TEST prerelease after main push
 
 `execute-pr-validation.yml` runs only for PRs targeting main and cancels older runs of that PR after
 a new push. PR validation and TEST each run `npm ci` and `npm run verify` independently; PR policy
@@ -56,8 +56,9 @@ deployment workflow serializes its own environment with `queue: max` and no canc
 runs. Up to 100 runs wait; excess runs are canceled. TEST and PROD have independent queues. Queue
 order follows entry into the concurrency group, not guaranteed merge/dispatch order.
 
-`deploy-to-test.yml` handles a **merged PR to main**, checks out its squash SHA, runs full
-verification inside that workflow without waiting for a separate validation workflow, then:
+`deploy-to-test.yml` handles pushes to `main`, checks out the pushed SHA, and runs full verification
+independently of PR validation. For release policy and provenance, it uses GitHub's commit-to-PR API
+to identify the unique merged same-repository PR for that squash commit, then:
 
 - verifies a one-parent squash commit whose subject equals the PR title, optionally followed by
   GitHub's exact ` (#<PR-number>)` suffix; other title changes are rejected;
@@ -67,32 +68,39 @@ verification inside that workflow without waiting for a separate validation work
 - stores the exact static build as an immutable Actions artifact with 90-day retention;
 - creates an annotated immutable tag and a GitHub prerelease with automatically generated notes
   based on the previous stable production release, plus TEST URL and provenance;
+- adds a short workflow summary naming the TEST prerelease and its URL;
 - refuses to move an existing tag to another commit;
 - permits retries at that exact commit while the release is still a prerelease; a stable release
   cannot be retested or mutated by this workflow.
 
 It does not create a second version-bump commit or push code directly to main. Tags are historical
-release markers. Merging changes TEST only, not PROD. The workflow does not merge PRs. An authorized
-owner/developer must review and squash merge only after green checks. If tagging succeeds but GitHub
-release creation fails, fix permissions and rerun the same workflow; do not delete the tag.
+release markers. Pushing to main changes TEST only, not PROD. Protect main with required PRs and
+checks before enabling the workflow on a public repository; any push to main triggers TEST. The
+workflow does not merge PRs. An authorized owner/developer must review and squash merge only after
+green checks. If tagging succeeds but GitHub release creation fails, fix permissions and rerun the
+same workflow; do not delete the tag.
 
 ## Manual PROD promotion
 
-Run `deploy-to-prod.yml` through **Actions → Deploy to PROD → Run workflow**, using the workflow
-from main and an existing prerelease **tag** input. Only its resolved immutable commit is deployed;
-main is the workflow control plane, not the deployment source. Explicitly confirm `test_approved`;
-an unchecked confirmation or dispatch from another ref fails before publishing.
+Run `deploy-to-prod.yml` through **Actions → Deploy to PROD → Run workflow** and select the exact
+`vX.Y.Z` TEST prerelease in **Use workflow from**. The workflow rejects branch refs; its selected
+tag is also the release being promoted, so a separate tag input is unnecessary. The checkbox
+`test_approved` was only a self-attestation and could not prove that testing happened, so it is
+removed.
 
-The workflow requires an annotated tag on main, matching manifest versions and TEST provenance, the
-exact successful TEST attempt including its code verification, and an unexpired artifact with its
-original ID/digest. It blocks stable releases and downgrades. After environment approval it repeats
-validation, downloads and hashes the exact original ZIP, and deploys the tested static files without
-a build. Only after PROD smoke tests does it mark that same release stable/latest. Generated notes
-and the tag SHA are retained.
+The tag-ref flow requires the selected tag to contain this version of `deploy-to-prod.yml`; older
+prereleases retain the workflow definition that was present when they were created.
 
-Human acceptance must identify the tested tag/SHA before TEST is overwritten by a later merge.
-Required environment reviewers, if available and configured, enforce an additional approval.
-Dispatch alone does not prove iPad acceptance.
+The workflow requires the selected ref to be an annotated `vX.Y.Z` tag that is an ancestor of main,
+matching manifest versions and TEST provenance, the exact successful TEST attempt including its code
+verification, and an unexpired artifact with its original ID/digest. It blocks stable releases and
+downgrades. The production environment should require a reviewer: unlike a checkbox, this is an
+independent human gate. After environment approval it repeats validation, downloads and hashes the
+exact original ZIP, and deploys the tested static files without a build. Only after PROD smoke tests
+does it mark that same release stable/latest. Generated notes and the tag SHA are retained.
+
+Human acceptance must identify the tested tag/SHA before TEST is overwritten by a later main push.
+Dispatch and automated validation do not prove iPad acceptance.
 
 If Cloudflare succeeds but smoke tests or release promotion fail, PROD may already be updated.
 Investigate and retry while the release is still prerelease; no automatic rollback is promised.

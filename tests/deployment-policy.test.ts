@@ -35,9 +35,9 @@ const release = {
 };
 const run = {
   conclusion: 'success',
-  event: 'pull_request',
-  head_branch: proof.branch,
-  head_sha: proof.head,
+  event: 'push',
+  head_branch: 'main',
+  head_sha: proof.sha,
   id: proof.run,
   path: '.github/workflows/deploy-to-test.yml',
   run_attempt: proof.attempt,
@@ -48,7 +48,7 @@ const artifact = {
   expired: false,
   id: proof.artifact,
   name: 'tested-site-34-1',
-  workflow_run: { head_sha: proof.head, id: proof.run },
+  workflow_run: { head_sha: proof.sha, id: proof.run },
 };
 const record = {
   targets: [proof.url],
@@ -161,7 +161,8 @@ describe('deployment provenance and exact-tag promotion policy', () => {
 
   it.each([
     { conclusion: 'failure' },
-    { event: 'push' },
+    { event: 'pull_request' },
+    { head_branch: proof.branch },
     { head_branch: 'reader-00002' },
     { head_sha: 'd'.repeat(40) },
     { id: 99 },

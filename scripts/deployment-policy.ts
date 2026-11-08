@@ -127,13 +127,15 @@ export function assertEvidence(
     run.id !== proof.run ||
     run.run_attempt !== proof.attempt ||
     run.path !== '.github/workflows/deploy-to-test.yml' ||
-    run.event !== 'pull_request' ||
-    run.head_branch !== proof.branch ||
-    run.head_sha !== proof.head ||
+    run.event !== 'push' ||
+    run.head_branch !== 'main' ||
+    run.head_sha !== proof.sha ||
     run.status !== 'completed' ||
     run.conclusion !== 'success'
   ) {
-    throw new Error('The exact TEST workflow attempt must have completed successfully on main.');
+    throw new Error(
+      'The exact TEST push-to-main workflow attempt must have completed successfully.',
+    );
   }
 
   if (
@@ -142,7 +144,7 @@ export function assertEvidence(
     artifact.expired !== false ||
     artifact.digest !== proof.digest ||
     artifactRun.id !== proof.run ||
-    artifactRun.head_sha !== proof.head
+    artifactRun.head_sha !== proof.sha
   ) {
     throw new Error(
       'TEST artifact is expired, replaced or does not match the successful workflow.',

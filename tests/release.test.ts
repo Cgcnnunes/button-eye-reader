@@ -36,17 +36,19 @@ vi.mock('../scripts/deployment.ts', () => ({
 
 const sha = 'a'.repeat(40);
 const originalArguments = [...process.argv];
-const event = {
-  pull_request: {
-    base: { ref: 'main' },
-    body: '- [ ] major\n- [x] minor\n- [ ] patch',
-    head: { ref: 'reader-00002', sha: 'c'.repeat(40) },
-    merge_commit_sha: sha,
-    merged: true,
-    number: 2,
-    title: 'feat(reader-00002): gate production deployment',
+const pullRequest = {
+  base: { ref: 'main', repo: { full_name: 'example/reader' } },
+  body: '- [ ] major\n- [x] minor\n- [ ] patch',
+  head: {
+    ref: 'reader-00002',
+    repo: { full_name: 'example/reader' },
+    sha: 'c'.repeat(40),
   },
-  repository: { full_name: 'example/reader' },
+  merge_commit_sha: sha,
+  merged: true,
+  merged_at: '2026-01-01T00:00:00Z',
+  number: 2,
+  title: 'feat(reader-00002): gate production deployment',
 };
 const record = JSON.stringify({
   targets: ['https://button-eye-reader-test.example.workers.dev'],
@@ -78,10 +80,12 @@ describe('TEST prerelease creation and retry orchestration', () => {
       CLOUDFLARE_API_TOKEN: 'test-token',
       DEPLOYMENT_OUTPUT: 'deploy.jsonl',
       DEPLOYMENT_URL: 'https://button-eye-reader-test.example.workers.dev',
-      GITHUB_EVENT_PATH: 'event.json',
+      GITHUB_EVENT_NAME: 'push',
+      GITHUB_REF: 'refs/heads/main',
       GITHUB_REPOSITORY: 'example/reader',
       GITHUB_RUN_ATTEMPT: '1',
       GITHUB_RUN_ID: '34',
+      GITHUB_SHA: sha,
       GITHUB_STEP_SUMMARY: 'summary',
       GITHUB_TOKEN: 'test-token',
     })) {
@@ -89,10 +93,6 @@ describe('TEST prerelease creation and retry orchestration', () => {
     }
 
     mocks.read.mockImplementation((path: string) => {
-      if (path === 'event.json') {
-        return JSON.stringify(event);
-      }
-
       if (path === 'package.json') {
         return JSON.stringify({ version: '0.2.0' });
       }
@@ -110,7 +110,7 @@ describe('TEST prerelease creation and retry orchestration', () => {
       }
 
       if (args[0] === 'show') {
-        return args.includes('--format=%s') ? event.pull_request.title : 'c'.repeat(40);
+        return args.includes('--format=%s') ? pullRequest.title : 'c'.repeat(40);
       }
 
       if (args[0] === 'diff-tree') {
@@ -130,11 +130,19 @@ describe('TEST prerelease creation and retry orchestration', () => {
 
     mocks.previousStable.mockResolvedValue('v0.1.0');
 
-    mocks.api.mockImplementation((path: string) =>
-      Promise.resolve(
+    mocks.api.mockImplementation((path: string) => {
+      if (path === `/commits/${sha}/pulls`) {
+        return Promise.resolve([pullRequest]);
+      }
+
+      if (path === '/pulls/2') {
+        return Promise.resolve(pullRequest);
+      }
+
+      return Promise.resolve(
         path === '/releases/generate-notes' ? { body: 'Automatically generated notes' } : null,
-      ),
-    );
+      );
+    });
   });
 
   afterEach(() => {
@@ -151,10 +159,18 @@ describe('TEST prerelease creation and retry orchestration', () => {
 
     expect(mocks.git.mock.calls.some((args) => args[0] === 'push')).toBe(false);
 
-    expect(mocks.api).not.toHaveBeenCalled();
+    expect(mocks.api).toHaveBeenCalledWith(`/commits/${sha}/pulls`);
+
+    expect(mocks.api).toHaveBeenCalledWith('/pulls/2');
+
+    expect(mocks.api).not.toHaveBeenCalledWith(
+      '/releases/generate-notes',
+      'POST',
+      expect.anything(),
+    );
   });
 
-  it('creates an annotated prerelease only with TEST output and previous-release generated notes', async () => {
+  it('associates the main squash push with its PR and creates the TEST prerelease', async () => {
     await run('publish');
 
     expect(mocks.git).toHaveBeenCalledWith('tag', '-a', 'v0.2.0', sha, '-m', 'Release v0.2.0');
@@ -173,6 +189,11 @@ describe('TEST prerelease creation and retry orchestration', () => {
       expect.objectContaining({ make_latest: 'false', prerelease: true, tag_name: 'v0.2.0' }),
     );
 
+    expect(mocks.append).toHaveBeenCalledWith(
+      'summary',
+      '\n## TEST prerelease v0.2.0\n\nDeployed to TEST; verify this exact version before PROD: https://button-eye-reader-test.example.workers.dev\n',
+    );
+
     expect(JSON.stringify(mocks.api.mock.calls)).toContain('<!-- tested-deployment');
   });
 
@@ -185,7 +206,7 @@ describe('TEST prerelease creation and retry orchestration', () => {
 
     mocks.git.mockImplementation((...args: string[]) =>
       args[0] === 'show' && args.includes('--format=%s')
-        ? `${event.pull_request.title} (#2)`
+        ? `${pullRequest.title} (#2)`
         : original(...args),
     );
 
@@ -203,7 +224,7 @@ describe('TEST prerelease creation and retry orchestration', () => {
 
     mocks.git.mockImplementation((...args: string[]) =>
       args[0] === 'show' && args.includes('--format=%s')
-        ? `${event.pull_request.title} (#99)`
+        ? `${pullRequest.title} (#99)`
         : original(...args),
     );
 
@@ -212,10 +233,6 @@ describe('TEST prerelease creation and retry orchestration', () => {
 
   it('does not create tags or releases if deployment output is invalid', async () => {
     mocks.read.mockImplementation((path: string) => {
-      if (path === 'event.json') {
-        return JSON.stringify(event);
-      }
-
       if (path === 'package.json') {
         return JSON.stringify({ version: '0.2.0' });
       }
@@ -230,6 +247,26 @@ describe('TEST prerelease creation and retry orchestration', () => {
     await expect(run('publish')).rejects.toThrow('deploy record');
 
     expect(mocks.git.mock.calls.some((args) => args[0] === 'push')).toBe(false);
+  });
+
+  it('rejects pushes outside main', async () => {
+    vi.stubEnv('GITHUB_REF', 'refs/heads/feature');
+
+    await expect(run('prepare')).rejects.toThrow('pushes to main');
+  });
+
+  it('rejects commits without one associated main PR', async () => {
+    mocks.api.mockResolvedValue([]);
+
+    await expect(run('prepare')).rejects.toThrow('exactly one PR targeting main');
+  });
+
+  it('rejects a PR association that is not merged into main', async () => {
+    mocks.api.mockImplementation((path: string) =>
+      Promise.resolve(path === '/pulls/2' ? { ...pullRequest, merged: false } : [pullRequest]),
+    );
+
+    await expect(run('prepare')).rejects.toThrow('merged same-repository PR targeting main');
   });
 
   it('recovers when the immutable tag exists but release creation previously failed', async () => {
