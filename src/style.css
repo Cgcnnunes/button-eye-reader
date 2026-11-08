@@ -326,40 +326,248 @@ textarea {
   transform: translate(-50%, -50%);
   z-index: 20;
 }
+.camera-guide {
+  display: grid;
+  grid-template-columns: minmax(140px, 180px) minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  border: 2px solid #d5e0e9;
+  border-left: 6px solid #ad5100;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 4px 0 #dce5ee;
+}
+.camera-view {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border: 1px solid #bfccd7;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #dce7ee, #f2f6f9);
+}
 .camera-feed {
-  position: fixed;
-  bottom: 0;
-  right: 0;
-  width: 2px;
-  height: 2px;
-  opacity: 0.01;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+.face-target {
+  position: absolute;
+  z-index: 1;
+  top: 48%;
+  left: 50%;
+  width: var(--face-target-width, calc(var(--face-width) * 100%));
+  aspect-ratio: 0.76;
+  border: 3px dashed #ad5100;
+  border-radius: 48% 48% 43% 43%;
+  background: #fff2;
+  transform: translate(-50%, -50%);
   pointer-events: none;
+}
+.face-target.aligned {
+  border-color: #14744b;
+  background: #71b59a24;
+}
+.face-outline {
+  position: absolute;
+  z-index: 2;
+  border: 2px solid #ad5100;
+  border-radius: 48% 48% 42% 42%;
+  pointer-events: none;
+}
+.camera-view.aligned .face-outline {
+  border-color: #14744b;
+}
+.camera-guide-copy {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+#face-state {
+  font-size: 16px;
+}
+#face-guidance {
+  margin: 0;
+  min-height: 24px;
+  font-size: 16px;
+  color: #4b6075;
+}
+.camera-guide-copy label {
+  font-size: 13px;
+  font-weight: 650;
+  color: #35516a;
+}
+.face-width-control {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #4b6075;
+  font-size: 12px;
+}
+.face-width-control input {
+  flex: 1;
+  min-width: 60px;
+  accent-color: #14744b;
+}
+.camera-guide-copy > small {
+  color: #697887;
+  font-size: 11px;
+  line-height: 1.25;
+}
+#camera-selector {
+  display: grid;
+  gap: 3px;
+}
+#camera-device {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid #bccad7;
+  border-radius: 6px;
+  background: #fff;
+  color: #102b46;
+  font-size: 12px;
+}
+.shell.gaze-active .guidance {
+  display: none;
+}
+.camera-guide.calibrating {
+  position: fixed;
+  z-index: 35;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  width: min(330px, calc(100vw - 24px));
+  grid-template-columns: minmax(90px, 120px) minmax(0, 1fr);
+  gap: 10px;
+  padding: 8px;
+  box-shadow: 0 4px 18px #102b4666;
+}
+.camera-guide.calibrating #face-guidance {
+  font-size: 12px;
+}
+.camera-guide.calibrating .camera-guide-copy > small {
+  display: none;
+}
+#tracking-dot.needs-position {
+  background: #ad5100;
 }
 .calibration {
   position: fixed;
   inset: 0;
+  overflow: hidden;
   background: #102b46;
   color: white;
   z-index: 30;
 }
+.calibration-camera-slot {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #102b46;
+}
+.camera-view.calibration-camera-view {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border: 0;
+  border-radius: 0;
+  background: #102b46;
+}
+.camera-view.calibration-camera-view .camera-feed {
+  object-fit: contain;
+  background: #102b46;
+}
+.camera-view.calibration-camera-view .face-target {
+  border-color: #f6bd5d;
+  border-width: 5px;
+  background: #f6bd5d20;
+  box-shadow: 0 0 0 999px #102b4650;
+}
+.camera-view.calibration-camera-view .face-target.aligned {
+  border-color: #80dfad;
+  background: #71b59a36;
+}
+.camera-view.calibration-camera-view .face-outline {
+  border-width: 4px;
+}
 .calibration-info {
   position: absolute;
-  width: min(90%, 600px);
+  z-index: 42;
+  width: min(82%, 760px);
   left: 50%;
-  top: 4%;
+  top: max(16px, env(safe-area-inset-top));
   transform: translateX(-50%);
   text-align: center;
   pointer-events: none;
+  padding: 12px 20px;
+  border: 1px solid #ffffff50;
+  border-radius: 16px;
+  background: #102b46d9;
+  box-shadow: 0 4px 20px #0005;
 }
 .calibration-info h2 {
-  font-size: 24px;
+  margin: 0 0 4px;
+  font-size: 26px;
+  color: #fff;
 }
 .calibration-info p {
+  margin: 0;
   font-size: 16px;
   line-height: 1.4;
 }
+.calibration-distance {
+  position: absolute;
+  z-index: 42;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  width: min(560px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  display: grid;
+  gap: 0;
+  padding: 12px;
+  border: 1px solid #ffffff50;
+  border-radius: 18px;
+  background: #102b46e8;
+  box-shadow: 0 4px 20px #0006;
+  text-align: center;
+}
+#calibration-set-distance {
+  min-height: 76px;
+  border: 0;
+  border-radius: 14px;
+  background: #f6bd5d;
+  color: #102b46;
+  padding: 12px 20px;
+  font-size: 23px;
+  font-weight: 750;
+  letter-spacing: 0.015em;
+  box-shadow: 0 4px 0 #c89133;
+}
+#calibration-set-distance:active {
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 #c89133;
+}
+.calibration.distance-selected .calibration-distance {
+  width: min(300px, calc(100vw - 32px));
+  gap: 0;
+  padding: 8px;
+}
+.calibration.distance-selected .calibration-distance p {
+  display: none;
+}
+.calibration.distance-selected #calibration-set-distance {
+  min-height: 52px;
+  padding: 8px 14px;
+  font-size: 17px;
+}
 #calibration-target {
   position: absolute;
+  z-index: 41;
   width: 74px;
   height: 74px;
   transform: translate(-50%, -50%);
@@ -377,8 +585,51 @@ textarea {
 }
 #cancel-calibration {
   position: absolute;
-  right: 20px;
-  bottom: max(20px, env(safe-area-inset-bottom));
+  z-index: 43;
+  right: max(16px, env(safe-area-inset-right));
+  top: max(16px, env(safe-area-inset-top));
+  min-height: 48px;
+  padding: 10px 18px;
+  border-color: #ffffff99;
+  background: #102b46d9;
+  color: #fff;
+  font-size: 16px;
+}
+@media (max-width: 699px) {
+  .calibration-info {
+    top: max(12px, env(safe-area-inset-top));
+    width: calc(100% - 24px);
+    padding: 10px 12px;
+  }
+  .calibration-info h2 {
+    font-size: 20px;
+  }
+  .calibration-info p {
+    font-size: 13px;
+  }
+  .calibration-distance {
+    bottom: max(12px, env(safe-area-inset-bottom));
+    width: calc(100% - 24px);
+    padding: 9px;
+  }
+  #calibration-set-distance {
+    min-height: 64px;
+    font-size: 19px;
+  }
+  #cancel-calibration {
+    right: max(12px, env(safe-area-inset-right));
+    top: max(12px, env(safe-area-inset-top));
+    min-height: 42px;
+    padding: 7px 12px;
+    font-size: 14px;
+  }
+  .calibration.distance-selected .calibration-distance {
+    width: min(230px, calc(100vw - 24px));
+  }
+  .calibration.distance-selected #calibration-set-distance {
+    min-height: 48px;
+    font-size: 15px;
+  }
 }
 @media (min-width: 900px) and (min-height: 700px) {
   .shell {
@@ -448,6 +699,20 @@ textarea {
   .control-button {
     min-height: 80px;
   }
+  .camera-guide {
+    grid-template-columns: minmax(112px, 145px) minmax(0, 1fr);
+    gap: 12px;
+    padding: 10px 12px;
+  }
+  .camera-guide-copy > small {
+    display: none;
+  }
+  #face-state {
+    font-size: 14px;
+  }
+  #face-guidance {
+    font-size: 14px;
+  }
   .feedback {
     min-height: 32px;
   }
@@ -509,6 +774,28 @@ textarea {
   .control-button {
     font-size: 18px;
     padding: 12px;
+  }
+  .camera-guide {
+    grid-template-columns: minmax(96px, 128px) minmax(0, 1fr);
+    gap: 10px;
+    padding: 10px;
+  }
+  #face-state,
+  #face-guidance {
+    font-size: 12px;
+  }
+  .camera-guide-copy {
+    gap: 3px;
+  }
+  .camera-guide-copy label {
+    font-size: 11px;
+  }
+  .face-width-control {
+    gap: 3px;
+    font-size: 10px;
+  }
+  .camera-guide-copy > small {
+    display: none;
   }
   .privacy {
     margin-left: 0;

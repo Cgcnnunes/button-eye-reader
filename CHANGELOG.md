@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0
+
+- Add full-screen camera calibration with face-position guidance, eye-follow targets and a caregiver
+  face-size reference control.
+
 ## 0.2.4
 
 - Fit the communication board and its controls in shorter iPad landscape viewports without clipping

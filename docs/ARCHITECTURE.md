@@ -23,9 +23,12 @@ Pipelines (data ingestion) is not used.
 3. [speech.ts](../src/speech.ts) selects an exact pt-PT system voice when available, prevents queued
    repeats and exposes failures. A touch gesture may be necessary on Safari. Missing voices are
    reported; do not promise the correct accent.
-4. [gaze.ts](../src/gaze.ts) owns front-camera capture and the MediaPipe lifecycle. Model/WASM are
-   loaded from the same origin. Video never leaves the browser. No face, multiple faces, closed
-   eyes, frozen frames or errors cannot count as valid gaze samples.
+4. [gaze.ts](../src/gaze.ts) owns user-facing-camera capture, the local mirrored preview, face
+   bounds and the MediaPipe lifecycle. A caregiver may choose an available camera for PC testing;
+   the default prefers the device's user-facing camera. Model/WASM are loaded from the same origin.
+   Video never leaves the browser. No face, multiple faces, closed eyes, frozen frames or errors
+   cannot count as valid gaze samples. Face position/size guidance is a framing aid, not a physical
+   distance or head-pose measurement.
 5. [gaze-math.ts](../src/gaze-math.ts) extracts iris/head features and fits a normalized
    ridge-regression mapping. Nine calibration points are followed by four independent validation
    points. Every validation point requires at least 12 samples, with 90% within 12% on **both**

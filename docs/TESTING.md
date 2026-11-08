@@ -61,12 +61,16 @@ audio.
 ## Manual option 1: physical iPad
 
 Use the Cloudflare **HTTPS** site in updated Safari, page zoom 100%, normal browsing, without Split
-View. Prefer landscape. A local Windows PC address over HTTP does not grant camera access on the
-iPad; use the separate HTTPS TEST Worker instead. If TEST is protected by Cloudflare Access, use its
-configured access method; never put service-token credentials into the app. Record its
-`release.json` tag/SHA and manual results before the next merge overwrites TEST. Its phrase storage
-is separate from PROD. A locally trusted HTTPS certificate can also work, but requires configuring
-trust on the iPad and is not part of this minimal setup.
+View. Prefer landscape. Confirm the preview uses the iPad's front camera, is mirrored, and shows the
+detected face against the target. Move the head out of range and confirm gaze pauses with a useful
+direction/size hint; return to the target and confirm tracking resumes. Set the face-size target for
+the fixed mount with **Definir esta distância** during full-screen calibration, then reload to
+confirm the setting persists. The app does not upload the camera image. A local Windows PC address
+over HTTP does not grant camera access on the iPad; use the separate HTTPS TEST Worker instead. If
+TEST is protected by Cloudflare Access, use its configured access method; never put service-token
+credentials into the app. Record its `release.json` tag/SHA and manual results before the next merge
+overwrites TEST. Its phrase storage is separate from PROD. A locally trusted HTTPS certificate can
+also work, but requires configuring trust on the iPad and is not part of this minimal setup.
 
 The assistant cannot automatically inspect your iPad or camera. Shared desktop browser tools do not
 connect to remote iPad Safari. Apple's Safari Web Inspector normally needs a **Mac**, cable/trusted
@@ -76,9 +80,12 @@ person's image, private phrases or other identifying information.
 
 ## Manual option 2: PC webcam and shared browser
 
-Connect a webcam, run `npm run dev` and open its **localhost** URL in the PC browser. Use the
-sound-test control, then the enable-gaze control, grant camera access and calibrate. To test
-compiled assets and CSP too, run `npm run build`, then `npx wrangler dev --local`.
+Connect a webcam, run `npm run dev` and open its **localhost** URL in the PC browser. Grant camera
+access; if the browser reports multiple video inputs, select the connected webcam in the face-guide
+panel. The default prefers the user-facing camera, while the selector permits an external PC webcam.
+Use the sound-test control, then enable gaze and calibrate. The PC webcam tests the prototype only;
+it does not establish iPad camera performance. To test compiled assets and CSP too, run
+`npm run build`, then `npx wrangler dev --local`.
 
 If you explicitly share that desktop browser page, the assistant can inspect the interface, errors,
 highlighted targets and browser console, and interact with controls. **The app hides the camera feed
@@ -98,6 +105,10 @@ exact visible errors.
 
 - [ ] Four large phrases and both lower controls fit without scrolling in both iPad orientations,
       including when Safari bars reduce the visible height and with a 100-character phrase.
+- [ ] With gaze active, verify the local mirrored camera preview and face outline; moving out of the
+      target pauses gaze and provides a useful hint. Returning to range restores tracking.
+- [ ] Set the caregiver face-size target with the full-screen **Definir esta distância** button and
+      confirm it persists after reload.
 - [ ] Each phrase speaks correctly by touch; accent is pt-PT and volume/output work. Lack of an
       installed pt-PT voice is reported.
 - [ ] Catalogue has four choices/page; first/last navigation is disabled correctly.

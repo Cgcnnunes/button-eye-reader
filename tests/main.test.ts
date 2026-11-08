@@ -7,24 +7,48 @@ const mocks = vi.hoisted(() => ({
   changed: vi.fn<(busy: boolean) => void>(),
   error: vi.fn<(error: Error) => void>(),
   frame: vi.fn<(frame: TrackingFrame) => void>(),
+  listVideoInputs: vi.fn<() => Promise<MediaDeviceInfo[]>>(),
   notify: vi.fn<(message: string) => void>(),
   speak: vi.fn<(text: string) => void>(),
-  start: vi.fn<() => Promise<void>>(),
+  start: vi.fn<(deviceId?: string) => Promise<void>>(),
   stop: vi.fn<() => void>(),
+  videoDeviceId: '',
 }));
 
-vi.mock('../src/gaze', () => ({
-  CameraTracker: class {
+vi.mock(import('../src/gaze'), async (importOriginal) => {
+  const actual = await importOriginal();
+
+  class MockCameraTracker extends actual.CameraTracker {
     constructor(frame: (frame: TrackingFrame) => void, error: (error: Error) => void) {
+      super(frame, error);
+
       mocks.frame.mockImplementation(frame);
 
       mocks.error.mockImplementation(error);
     }
 
-    start = mocks.start;
-    stop = mocks.stop;
-  },
-}));
+    override async start(deviceId?: string): Promise<void> {
+      await mocks.start(deviceId);
+    }
+
+    override async listVideoInputs(): Promise<MediaDeviceInfo[]> {
+      return mocks.listVideoInputs();
+    }
+
+    override get videoDeviceId(): string {
+      return mocks.videoDeviceId;
+    }
+
+    override stop(): void {
+      mocks.stop();
+    }
+  }
+
+  return {
+    ...actual,
+    CameraTracker: MockCameraTracker,
+  };
+});
 
 vi.mock('../src/speech', () => ({
   Speaker: class {
@@ -86,10 +110,23 @@ async function start(): Promise<void> {
 function emit(features: number[] | null): void {
   vi.advanceTimersByTime(80);
 
-  mocks.frame({ features, time: performance.now() });
+  mocks.frame({
+    faceBounds: { bottom: 0.66, left: 0.36, right: 0.64, top: 0.3 },
+    faceCount: 1,
+    features,
+    time: performance.now(),
+  });
 }
 
 function calibrate(staticSignal = false): void {
+  const firstTarget = document.getElementById('calibration-target');
+
+  if (!firstTarget) throw new Error('Missing calibration target');
+
+  emit(staticSignal ? [0.5, 0.5] : [0.15, 0.18]);
+
+  button('calibration-set-distance').click();
+
   let frames = 0;
 
   while (!document.getElementById('calibration')?.hidden && frames < 600) {
@@ -132,6 +169,10 @@ describe('phrase board and gaze UI regression', () => {
     vi.clearAllMocks();
 
     mocks.start.mockResolvedValue(undefined);
+
+    mocks.listVideoInputs.mockResolvedValue([]);
+
+    mocks.videoDeviceId = '';
 
     document.body.innerHTML = '<div id="app"></div>';
 
@@ -198,6 +239,10 @@ describe('phrase board and gaze UI regression', () => {
     expect(button('add').hasAttribute('data-gaze')).toBe(false);
 
     expect(button('catalogue').hasAttribute('data-gaze')).toBe(true);
+
+    expect(document.getElementById('camera-guide')?.hidden).toBe(true);
+
+    expect(document.querySelector('#camera-view video')).not.toBeNull();
 
     button('speak:2').click();
 
@@ -345,6 +390,35 @@ describe('phrase board and gaze UI regression', () => {
     expect(text('tracking')).toBe('Olhar desligado');
   });
 
+  it('offers connected cameras so a PC webcam can be selected for testing', async () => {
+    const front = { deviceId: 'integrated', kind: 'videoinput', label: 'Integrated camera' };
+    const usb = { deviceId: 'usb', kind: 'videoinput', label: 'USB camera' };
+
+    mocks.videoDeviceId = 'integrated';
+
+    mocks.listVideoInputs.mockResolvedValue([front, usb] as MediaDeviceInfo[]);
+
+    await load();
+
+    await start();
+
+    const selector = document.getElementById('camera-device');
+
+    if (!(selector instanceof HTMLSelectElement)) throw new Error('Missing camera selector');
+
+    expect(selector.hidden).toBe(false);
+
+    expect(selector.value).toBe('integrated');
+
+    selector.value = 'usb';
+
+    selector.dispatchEvent(new Event('change', { bubbles: true }));
+
+    await vi.waitFor(() => {
+      expect(mocks.start).toHaveBeenLastCalledWith('usb');
+    });
+  });
+
   it('rejects static gaze calibration and never enables selection', async () => {
     await load();
 
@@ -380,7 +454,7 @@ describe('phrase board and gaze UI regression', () => {
 
     expect(text('tracking')).toBe('Olhar ativo');
 
-    expect(document.getElementById('shell')?.inert).toBe(false);
+    expect(document.getElementById('content')?.inert).toBe(false);
 
     away();
 
@@ -425,6 +499,62 @@ describe('phrase board and gaze UI regression', () => {
     emit([100, 100]);
 
     expect(text('tracking')).toContain('em pausa');
+  });
+
+  it('uses the full-screen camera view and distance control during calibration', async () => {
+    await load();
+
+    await start();
+
+    emit([0.5]);
+
+    const guide = document.getElementById('camera-guide');
+
+    expect(guide?.hidden).toBe(true);
+
+    expect(document.querySelector('#calibration-camera-slot #camera-view video')).not.toBeNull();
+
+    expect(document.getElementById('calibration-target')?.hidden).toBe(true);
+
+    button('calibration-set-distance').click();
+
+    expect(document.getElementById('calibration-target')?.hidden).toBe(false);
+
+    expect(button('calibration-set-distance').textContent).toBe('Alterar distância');
+
+    expect(localStorage.getItem('button-eye-reader.face-width.v1')).toBe('0.28');
+
+    expect(text('calibration-info')).toContain('Calibração 1/9');
+  });
+
+  it('pauses gaze and shows local camera guidance when face position is lost', async () => {
+    await load();
+
+    await start();
+
+    calibrate();
+
+    emit(null);
+
+    expect(document.getElementById('camera-guide')?.hidden).toBe(false);
+
+    expect(text('face-guidance')).toContain('olhos abertos');
+
+    expect(text('tracking')).toContain('Ajuste o rosto');
+
+    const distance = document.getElementById('face-width');
+
+    if (!(distance instanceof HTMLInputElement)) throw new Error('Missing face width control');
+
+    distance.value = '42';
+
+    distance.dispatchEvent(new Event('input', { bubbles: true }));
+
+    expect(text('face-guidance')).toContain('Aproxime');
+
+    distance.dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(localStorage.getItem('button-eye-reader.face-width.v1')).toBe('0.42');
   });
 
   it.each(['resize', 'scroll', 'pagehide'])(
