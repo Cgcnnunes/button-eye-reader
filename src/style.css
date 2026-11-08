@@ -76,6 +76,24 @@ h2 {
   font-size: 17px;
   color: #4b6075;
 }
+.page-indicator {
+  display: inline-block;
+  color: #102b46;
+  background: #e4ecf3;
+  border-radius: 8px;
+  padding: 4px 10px;
+}
+.page-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+.page-arrow {
+  font-size: clamp(36px, 7dvh, 64px);
+  line-height: 0.8;
+  font-weight: 400;
+}
 main {
   flex: 1;
   display: flex;

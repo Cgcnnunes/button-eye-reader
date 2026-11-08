@@ -139,10 +139,25 @@ function makeButton(
 
   button.append(label);
 
-  if (!options.secondary && screen !== 'board') {
+  if (action === 'previous' || action === 'next') {
+    button.classList.add('page-navigation');
+
+    const arrow = document.createElement('span');
+
+    arrow.className = 'page-arrow';
+
+    arrow.setAttribute('aria-hidden', 'true');
+
+    arrow.textContent = action === 'previous' ? '‹' : '›';
+
+    if (action === 'previous') button.prepend(arrow);
+    else button.append(arrow);
+  }
+
+  if (!options.secondary && screen === 'replace') {
     const hint = document.createElement('small');
 
-    hint.textContent = screen === 'replace' ? 'Substituir este botão' : 'Escolher frase';
+    hint.textContent = 'Substituir este botão';
 
     button.append(hint);
   }
@@ -191,6 +206,16 @@ function render(): void {
           ? `Vai colocar: «${selected?.text ?? ''}»`
           : 'Área de escrita para quem acompanha.';
 
+  if (screen === 'catalogue') {
+    const pageLabel = document.createElement('strong');
+
+    pageLabel.className = 'page-indicator';
+
+    pageLabel.textContent = `página ${page + 1} de ${Math.ceil(board.phrases.length / 4)}`;
+
+    element('screen-hint').replaceChildren('Catálogo · ', pageLabel);
+  }
+
   if (screen === 'board' || screen === 'replace') {
     board.slots.forEach((id, index) => {
       grid.append(
@@ -204,7 +229,9 @@ function render(): void {
     });
 
     if (screen === 'board') {
-      controls.append(makeButton('Escolher outra frase', 'catalogue', { secondary: true }));
+      controls.append(
+        makeButton('Escolher outra frase guardada', 'catalogue', { secondary: true }),
+      );
 
       controls.classList.add('board-controls');
     } else {

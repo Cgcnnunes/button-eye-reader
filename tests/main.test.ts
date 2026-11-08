@@ -294,13 +294,27 @@ describe('standard accessible phrase board', () => {
   it('pages the catalogue, cancels changes and persists a replacement', async () => {
     await load();
 
+    expect(button('catalogue').textContent).toBe('Escolher outra frase guardada');
+
     button('catalogue').click();
+
+    expect(document.querySelector('.page-indicator')?.textContent).toBe('página 1 de 8');
+
+    expect(button('previous').querySelector('.page-arrow')?.textContent).toBe('‹');
+
+    expect(button('next').querySelector('.page-arrow')?.textContent).toBe('›');
+
+    expect(button('previous').querySelector('.page-arrow')?.getAttribute('aria-hidden')).toBe(
+      'true',
+    );
 
     expect(button('previous').disabled).toBe(true);
 
     button('previous').click();
 
     button('next').click();
+
+    expect(document.querySelector('.page-indicator')?.textContent).toBe('página 2 de 8');
 
     button('previous').click();
 
@@ -357,7 +371,7 @@ describe('standard accessible phrase board', () => {
     expect(document.body.textContent).not.toContain('Uma frase de cada vez');
   });
 
-  it('shows only phrase text on speaking buttons while preserving catalogue action hints', async () => {
+  it('shows only centered phrase text on speaking and catalogue buttons', async () => {
     await load();
 
     for (const target of document.querySelectorAll('.phrase-button')) {
@@ -370,7 +384,7 @@ describe('standard accessible phrase board', () => {
 
     button('catalogue').click();
 
-    expect(document.querySelector('.phrase-button small')?.textContent).toBe('Escolher frase');
+    expect(document.querySelector('.phrase-button small')).toBeNull();
   });
 
   it('persists old default upgrades and preserves saved choices when migration storage fails', async () => {

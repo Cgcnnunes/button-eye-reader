@@ -2,6 +2,9 @@
 
 ## 0.4.1
 
+- Clarify saved-phrase navigation, add large directional pagination arrows and highlight the current
+  catalogue page.
+- Remove catalogue action subtitles so phrase text remains centered without extra labels.
 - Fit all tablet screens to dynamic viewport height with adaptive target text, spacing and form
   sizing; remove overflow hiding and validate A16-sized portrait/landscape and shorter viewports.
 - Increase separation between speaking targets and navigation for native Eye Tracking.

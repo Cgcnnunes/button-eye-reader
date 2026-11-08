@@ -92,6 +92,8 @@ available. No face images or recordings are needed for testing.
 - [ ] Prolonged fixation and repeated system activations do not cause unacceptable repeated speech.
       Check both during speech and after speech finishes; the busy guard is not a gaze repeat lock.
 - [ ] Catalogue has four choices/page; first/last navigation disables correctly.
+- [ ] Saved-phrase navigation shows large left/right arrows and a highlighted current-page label;
+      labels update on navigation and arrow decorations do not change accessible button names.
 - [ ] Navigate, select and replace phrases with native input; reload and confirm persistence.
 - [ ] Caregiver additions persist; empty/duplicate/overlong input is rejected and text is literal.
       The caregiver manages system tracking if needed during writing.
