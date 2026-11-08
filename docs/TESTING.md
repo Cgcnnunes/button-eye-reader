@@ -35,17 +35,16 @@ internet; a checksum mismatch fails explicitly.
 
 Tests cover storage validation/persistence, phrase replacement, camera cancellation and errors,
 voice errors, regression mapping, per-point calibration acceptance, exact dwell timing/repeat locks,
-the UI flow, production diagnostic-header gating and commit/PR/version policies. Local development
-draws detected eye outlines and iris rings over the camera preview. On validation failure, it also
-reports the percentage of samples within the 12% X/Y limit for each validation target. In PROD,
-these diagnostics are enabled only when the initial HTML request includes `x-test-production: true`;
-the Worker adds a runtime flag and disables caching for that response. The header is an opt-in
-switch, not authentication. Diagnostics do not change gaze acceptance, and no camera images are
-collected or transmitted. Coverage includes all browser TypeScript and shared policy logic,
-including deployment provenance guards. Tests reject failed/unrelated workflows, stable or malformed
-tags, expired/tampered artifacts, checksum mismatches and wrong Worker output. Every included file
-requires 90% lines/statements/functions and 80% branches. Do not lower thresholds to hide missing
-tests. HTML coverage is in `coverage/index.html` (ignored by Git).
+the UI flow, diagnostics in production-mode HTML without a header and commit/PR/version policies.
+Local development and TEST draw detected eye outlines and iris rings over the camera preview. On
+validation failure, they also report the percentage of samples within the 12% X/Y limit for each
+validation target. These diagnostics are temporarily enabled in PROD too, without a request header.
+Diagnostics do not change gaze acceptance, and no camera images are collected or transmitted.
+Coverage includes all browser TypeScript and shared policy logic, including deployment provenance
+guards. Tests reject failed/unrelated workflows, stable or malformed tags, expired/tampered
+artifacts, checksum mismatches and wrong Worker output. Every included file requires 90%
+lines/statements/functions and 80% branches. Do not lower thresholds to hide missing tests. HTML
+coverage is in `coverage/index.html` (ignored by Git).
 
 ## Local gaze testing without a camera
 
@@ -78,11 +77,9 @@ credentials into the app. Record its `release.json` tag/SHA and manual results b
 overwrites TEST. Its phrase storage is separate from PROD. A locally trusted HTTPS certificate can
 also work, but requires configuring trust on the iPad and is not part of this minimal setup.
 
-For an opt-in eye-marker test on PROD, configure a browser header-injection tool for the production
-origin to add `x-test-production: true` to the initial page request, then reload. The Worker adds
-the diagnostic flag to that HTML response; cyan outlines indicate detected eye regions and gold
-rings indicate iris landmarks. The header is not a secret or an access-control mechanism; it only
-enables these local visual diagnostics. Remove the injected header to return to the normal UI.
+Eye markers are enabled by default in local and TEST and temporarily in PROD; no header-injection
+tool is needed. Cyan outlines indicate detected eye regions and gold rings indicate iris landmarks.
+They show detected landmarks, not proof that the person is looking at a calibration circle.
 
 The assistant cannot automatically inspect your iPad or camera. Shared desktop browser tools do not
 connect to remote iPad Safari. Apple's Safari Web Inspector normally needs a **Mac**, cable/trusted
