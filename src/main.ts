@@ -217,6 +217,8 @@ function render(): void {
 
   content.replaceChildren();
 
+  element('shell').classList.toggle('board-screen', screen === 'board');
+
   const grid = document.createElement('div');
 
   grid.className = 'phrase-grid';

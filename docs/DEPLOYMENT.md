@@ -1,20 +1,23 @@
 # Deployment with Cloudflare and GitHub
 
 Guide for developers and AI agents: **GitHub Actions deploys Workers Static Assets to two
-independent Workers**, starting from an account with no Workers. Workers Builds is not used;
-Cloudflare Pipelines is a data-ingestion product and is not used.
+independent Workers**. It includes a clean-start procedure for accounts without existing Workers;
+inspect existing Workers before applying those steps. Workers Builds is not used; Cloudflare
+Pipelines is a data-ingestion product and is not used.
 
-- Protected push to `main` -> validation -> TEST Worker -> smoke tests -> artifact -> `vX.Y.Z` tag
-  and GitHub **prerelease**, with notes generated since the previous stable release.
+- Push to `main` starts the TEST workflow. Only a commit that passes verification and merged-PR
+  release checks -> TEST Worker -> smoke tests -> artifact -> `vX.Y.Z` tag and GitHub
+  **prerelease**, with notes generated since the previous stable release.
 - Dispatch **Deploy to PROD** from that tag -> provenance validation -> (if configured) environment
   reviewer approval -> download the same artifact -> PROD Worker -> smoke tests -> make the same
   release stable.
 
 Pushes, merges and tag creation do not deploy PROD. A valid PROD deployment requires an explicit
 workflow dispatch by someone with write access. A separate reviewer approval is enforced only if
-GitHub offers and the `production` environment has that protection rule configured. Any push to
-`main` deploys TEST, so protect `main` with required PRs and checks before making the repository
-public. The site is not rebuilt for PROD.
+GitHub offers and the `production` environment has that protection rule configured. Every push to
+`main` starts the TEST workflow, but commits that fail its release checks do not deploy. Protect
+`main` with required PRs and checks before making the repository public. The site is not rebuilt for
+PROD.
 
 ## 1. Prerequisites
 
@@ -42,9 +45,10 @@ configured:
 7. Reload each Worker's settings and confirm the exact names, enabled URLs and absence of any GitHub
    Workers Builds connection or deployment hooks.
 
-The initial contents of **both** Workers are placeholders, not the communication app. The first
-successful push-to-main workflow replaces TEST's starter. PROD keeps its starter until you test that
-prerelease and explicitly dispatch PROD promotion.
+For a new setup, the initial contents of **both** Workers are placeholders, not the communication
+app. A successful eligible main-push workflow replaces TEST's starter. PROD keeps its starter until
+you test a prerelease and explicitly dispatch PROD promotion. Existing deployments may already
+contain other content; inspect each Worker before proceeding.
 
 Expected URLs for this repository:
 
@@ -173,8 +177,9 @@ deployment-hook URLs. Authenticate directly on GitHub/Cloudflare login pages, no
 ## 4. First merge and TEST acceptance
 
 After creating both Workers and configuring deployment secrets, URLs and the `production` tag
-restriction, squash-merge the workflow PR. The merge's push to `main` triggers **Actions -> Deploy
-to TEST** (`deploy-to-test.yml`). Confirm:
+restriction, squash-merge the workflow PR. The merge's push to `main` starts **Actions -> Deploy to
+TEST** (`deploy-to-test.yml`). The workflow deploys only if verification and merged-PR release
+checks pass. Confirm:
 
 1. Checkout of the pushed `main` SHA and successful `npm run verify` inside the TEST workflow
    itself.
@@ -235,9 +240,10 @@ simultaneously because they deploy different Workers.
 
 GitHub processes waiting runs in FIFO order by the time they enter the concurrency queue, not
 necessarily dispatch/merge order. Confirm TEST completion and the exact tested SHA before promotion.
-Protect `main` with required PRs, squash-only merges and the validation check: every push to `main`
-triggers TEST, including a direct push. Human-test the exact prerelease tag/SHA before it is
-overwritten by a later push.
+Protect `main` with required PRs, squash-only merges and the validation check. Every push to `main`,
+including a direct push, starts TEST; commits without the required merged-PR release provenance fail
+before deployment. Human-test the exact prerelease tag/SHA before TEST is replaced by a later
+successful eligible push.
 
 ## 6. Troubleshooting
 
@@ -271,15 +277,17 @@ warnings from the Cloudflare dashboard are not necessarily application failures.
 - **Deployment authentication/permission error:** check account, token validity and token selection.
   Correct only the permission identified in the logs.
 - **PROD smoke test says the configured environment URL does not match the deployed Worker:**
-  Wrangler has already deployed before the smoke test, so PROD may already be updated even though
-  the workflow failed and the release remains a prerelease. Compare the production `DEPLOYMENT_URL`
-  hostname with `env.production.name` in `wrangler.jsonc`. In this repository, the required PROD URL
-  is `https://button-eye-reader-prod.cgcnnunes.workers.dev`, so `env.production.name` must be
-  `button-eye-reader-prod`. The failed v0.2.2 run used an older configuration and deployed to
-  `https://button-eye-reader.cgcnnunes.workers.dev`; this is not the intended PROD Worker. The
-  corrected configuration is included in v0.2.3. Do not retry v0.2.2 for PROD because its tag still
-  contains the old Worker name; after the fix is merged and its TEST deployment succeeds, promote
-  the new v0.2.3 tag.
+  Wrangler has already deployed before the smoke test, so the Worker named in its output may already
+  be updated even though the workflow failed and the release remains a prerelease. Compare
+  `DEPLOYMENT_URL` with the configured Worker name and the Wrangler target in the run log. For this
+  repository, the intended TEST and PROD URLs are
+  `https://button-eye-reader-test.cgcnnunes.workers.dev` and
+  `https://button-eye-reader-prod.cgcnnunes.workers.dev`. The failed v0.2.2 run explicitly reports
+  that it uploaded Worker `button-eye-reader` at `https://button-eye-reader.cgcnnunes.workers.dev`,
+  so it did **not** deploy to the intended PROD Worker. The `v0.2.2` tag retains that old Worker
+  name; release policy forbids moving or reusing the tag for another Worker. The corrected
+  configuration in this PR targets `button-eye-reader-prod`. After the PR is merged, confirm that
+  its TEST workflow succeeds and creates the `v0.2.3` prerelease; then promote that exact tag.
 - **TEST environment rejects `main`:** allow the `main` branch in the GitHub `test` environment.
   Keep `production` restricted to tags matching `v*`.
 - **TEST smoke request redirects to Access login or returns 401/403:** deployment may already have
@@ -296,15 +304,16 @@ warnings from the Cloudflare dashboard are not necessarily application failures.
   rebuild a tag for PROD. Rerun TEST for the same prerelease if it is not stable, then repeat human
   acceptance before promotion.
 - **TEST fails before tagging:** fix the cause and rerun the original workflow or submit a new PR.
-  PROD retains its starter or previous approved deployment.
+  PROD receives no new deployment; its existing content remains in place.
 - **Tag creation succeeds but release creation fails:** do not move/delete the tag; rerun the
   original workflow. Recovery accepts only the same tag SHA. Existing prerelease provenance is
   updated only after another successful TEST deployment.
-- **PROD deploys but smoke tests/GitHub promotion fail:** PROD may already have changed. This is not
-  an automatic rollback or cross-provider transaction. Inspect the public version and retry the same
-  promotion while the release remains a prerelease. Redispatch is blocked once stable. Emergency
-  rollback requires authorization and a separate procedure, not an old tag selected in this
-  promotion workflow.
+- **PROD deploys but smoke tests/GitHub promotion fail:** the Worker named in Wrangler's output may
+  already have changed. This is not an automatic rollback or cross-provider transaction. Inspect
+  which Worker was deployed and diagnose the failure. Retry the same promotion only for a transient
+  issue with an otherwise correct deployment; a code/configuration correction requires a new release
+  tag. Redispatch is blocked once stable. Emergency rollback requires authorization and a separate
+  procedure, not an old tag selected in this promotion workflow.
 
 ## 7. Verify deployment, not just the build
 

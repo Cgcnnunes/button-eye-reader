@@ -97,15 +97,17 @@ static apps. **Before enabling workflows, confirm that `main` exists on GitHub a
 branch.** Reload dashboards after saving configuration and verify both Workers and GitHub
 environments; external settings do not change just because YAML changes.
 
-Each protected push to `main` validates and deploys **TEST only**. Only after success does it create
-a `vX.Y.Z` tag and GitHub prerelease with generated notes. After testing, dispatch **Deploy to
-PROD** from that exact tag: it validates provenance and deploys the same artifact without
-rebuilding, then makes the same release stable. See the guide for tokens, URLs, the `production` tag
-restriction and reviewer approval if GitHub offers that setting.
+Every push to `main` starts the TEST workflow. Only a commit that passes validation and has the
+required merged-PR provenance is deployed to **TEST**; after success, the workflow creates a
+`vX.Y.Z` tag and GitHub prerelease with generated notes. After testing that exact tag, dispatch
+**Deploy to PROD** from it: the workflow validates provenance and deploys the same artifact without
+rebuilding, then makes the release stable. See the guide for credentials, the exact TEST/PROD URLs,
+the `production` tag restriction and the conditional reviewer setting.
 
-Create both TEST and PROD Workers from scratch using the guide and copy their actual URLs. The
-starter content is replaced only by the respective workflow. Choose the final origin before storing
-phrases; changing domains does not transfer `localStorage`.
+For a new setup, create both TEST and PROD Workers using the guide and copy their actual URLs. The
+respective workflow replaces content on its configured Worker; inspect existing Workers before
+deploying. Choose the final origin before storing phrases; changing domains does not transfer
+`localStorage`.
 
 Authenticated local alternative for **TEST only**, without creating an eligible prerelease:
 
