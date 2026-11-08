@@ -9,6 +9,7 @@ import {
   type Phrase,
   replaceSlot,
   STORAGE_KEY,
+  upgradeCatalogue,
   upgradeDefaultSlots,
 } from './store';
 
@@ -297,7 +298,7 @@ function persist(next: Board): boolean {
 
 function readSavedBoard(raw: string): Board {
   const saved = parseBoard(raw);
-  const upgraded = upgradeDefaultSlots(saved);
+  const upgraded = upgradeCatalogue(upgradeDefaultSlots(saved));
 
   if (upgraded !== saved) {
     try {

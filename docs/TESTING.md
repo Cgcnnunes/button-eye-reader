@@ -85,6 +85,9 @@ available. No face images or recordings are needed for testing.
       The board catalogue button adapts from 72px to 96px.
 - [ ] New boards start with yes/no/bathroom/pain. Existing original bottom defaults upgrade and
       persist; customized slots/text remain unchanged. Storage failure reports an error.
+- [ ] New and saved catalogues share the first twelve templates in the prescribed order; thirst is
+      included and the four retired defaults are absent. Retired template assignments use the
+      corresponding starting slot; caregiver-added/edited phrases remain available.
 - [ ] Sound test and all touch phrases work; check actual pt-PT accent, volume and missing-voice
       errors.
 - [ ] Native Eye Tracking activates each speaking button at least ten times. Record intended

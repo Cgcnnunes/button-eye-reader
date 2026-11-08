@@ -298,7 +298,7 @@ describe('standard accessible phrase board', () => {
 
     button('catalogue').click();
 
-    expect(document.querySelector('.page-indicator')?.textContent).toBe('página 1 de 8');
+    expect(document.querySelector('.page-indicator')?.textContent).toBe('página 1 de 7');
 
     expect(button('previous').querySelector('.page-arrow polyline')?.getAttribute('points')).toBe(
       '16,4 8,12 16,20',
@@ -318,7 +318,7 @@ describe('standard accessible phrase board', () => {
 
     button('next').click();
 
-    expect(document.querySelector('.page-indicator')?.textContent).toBe('página 2 de 8');
+    expect(document.querySelector('.page-indicator')?.textContent).toBe('página 2 de 7');
 
     button('previous').click();
 
@@ -350,11 +350,11 @@ describe('standard accessible phrase board', () => {
 
     while (!button('next').disabled) button('next').click();
 
-    expect(text('screen-hint')).toContain('página 8 de 8');
+    expect(text('screen-hint')).toContain('página 7 de 7');
 
     button('next').click();
 
-    expect(text('screen-hint')).toContain('página 8 de 8');
+    expect(text('screen-hint')).toContain('página 7 de 7');
   });
 
   it('keeps guidance without a logo in the header and experimental beside the footer version', async () => {
@@ -394,7 +394,7 @@ describe('standard accessible phrase board', () => {
   it('persists old default upgrades and preserves saved choices when migration storage fails', async () => {
     const old = defaultBoard();
 
-    old.phrases = old.phrases.slice(0, 28);
+    old.phrases = old.phrases.filter((phrase) => phrase.id !== 'template-28');
 
     old.slots = ['template-0', 'template-1', 'template-2', 'template-3'];
 
@@ -408,7 +408,7 @@ describe('standard accessible phrase board', () => {
 
     expect(button('speak:3').textContent).toContain('Tenho dores');
 
-    expect(parseBoard(localStorage.getItem(STORAGE_KEY) ?? '').phrases).toHaveLength(29);
+    expect(parseBoard(localStorage.getItem(STORAGE_KEY) ?? '').phrases).toHaveLength(26);
 
     localStorage.setItem(STORAGE_KEY, raw);
 

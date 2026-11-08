@@ -2,6 +2,9 @@
 
 ## 0.4.1
 
+- Prioritize the catalogue's first twelve phrases as requested, add thirst and retire four
+  templates. Apply the same ordering to saved catalogues while preserving custom text; retired
+  default assignments fall back to the corresponding starting slot.
 - Use vertically centered vector pagination arrows and a distinct blue for previous/next controls.
 - Clarify saved-phrase navigation, add large directional pagination arrows and highlight the current
   catalogue page.

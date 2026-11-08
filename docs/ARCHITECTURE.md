@@ -44,6 +44,9 @@ flowchart LR
 - Starting slots are yes, no, bathroom and pain. Recognized old default bottom slots are upgraded on
   load (including cross-tab changes), preserving customized slots and all catalogue phrases. Save
   the upgrade before displaying it; storage failures preserve saved data and report an error.
+- Template IDs stay stable when the catalogue is reordered. Saved catalogues adopt the same 26
+  templates, with custom/edited text retained afterwards. Retired unchanged templates are removed;
+  affected speaking slots use that position's starting phrase, never an invalid reference.
 - Writing is labelled for caregivers. This is a workflow boundary, not authentication or a
   system-input lock: the website cannot disable Apple's Eye Tracking in the form.
 - Persist phrases successfully before changing the in-memory board. Report/preserve corrupt storage.

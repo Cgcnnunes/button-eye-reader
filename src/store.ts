@@ -13,41 +13,86 @@ export const STORAGE_KEY = 'button-eye-reader.pt-PT.v1';
 export const MAX_TEXT = 100;
 
 const templates = [
-  'Sim',
-  'Não',
-  'Quero água',
-  'Preciso de ajuda',
-  'Tenho fome',
-  'Estou cansado',
-  'Tenho frio',
-  'Tenho calor',
-  'Estou bem',
-  'Não estou bem',
-  'Quero descansar',
-  'Quero mudar de posição',
-  'Preciso de ir à casa de banho',
-  'Estou desconfortável',
-  'Mais',
-  'Menos',
-  'Por favor',
-  'Obrigado',
-  'Quero estar contigo',
-  'Quero ouvir música',
-  'Liga a televisão',
-  'Desliga a televisão',
-  'Espera um pouco',
-  'Não percebeste',
-  'Quero dizer outra coisa',
-  'Gosto de ti',
-  'Quero silêncio',
-  'Chama alguém',
-  'Tenho dores',
+  { id: 'template-0', text: 'Sim' },
+  { id: 'template-1', text: 'Não' },
+  { id: 'template-12', text: 'Preciso de ir à casa de banho' },
+  { id: 'template-28', text: 'Tenho dores' },
+  { id: 'template-4', text: 'Tenho fome' },
+  { id: 'template-29', text: 'Tenho sede' },
+  { id: 'template-6', text: 'Tenho frio' },
+  { id: 'template-7', text: 'Tenho calor' },
+  { id: 'template-13', text: 'Estou desconfortável' },
+  { id: 'template-11', text: 'Quero mudar de posição' },
+  { id: 'template-10', text: 'Quero descansar' },
+  { id: 'template-3', text: 'Preciso de ajuda' },
+  { id: 'template-5', text: 'Estou cansado' },
+  { id: 'template-9', text: 'Não estou bem' },
+  { id: 'template-8', text: 'Estou bem' },
+  { id: 'template-2', text: 'Quero água' },
+  { id: 'template-27', text: 'Chama alguém' },
+  { id: 'template-23', text: 'Não percebeste' },
+  { id: 'template-24', text: 'Quero dizer outra coisa' },
+  { id: 'template-14', text: 'Mais' },
+  { id: 'template-15', text: 'Menos' },
+  { id: 'template-16', text: 'Por favor' },
+  { id: 'template-17', text: 'Obrigado' },
+  { id: 'template-20', text: 'Liga a televisão' },
+  { id: 'template-21', text: 'Desliga a televisão' },
+  { id: 'template-25', text: 'Gosto de ti' },
 ];
 
 export function defaultBoard(): Board {
-  const phrases = templates.map((text, index) => ({ id: `template-${index}`, text }));
+  const phrases = templates.map((phrase) => ({ ...phrase }));
 
   return { phrases, slots: ['template-0', 'template-1', 'template-12', 'template-28'], version: 1 };
+}
+
+export function upgradeCatalogue(board: Board): Board {
+  const removed = [
+    { id: 'template-18', text: 'Quero estar contigo' },
+    { id: 'template-19', text: 'Quero ouvir música' },
+    { id: 'template-22', text: 'Espera um pouco' },
+    { id: 'template-26', text: 'Quero silêncio' },
+  ];
+  const retained = board.phrases.filter(
+    (phrase) => !removed.some((item) => item.id === phrase.id && item.text === phrase.text),
+  );
+  const ordered: Phrase[] = [];
+
+  for (const template of templates) {
+    const existing = retained.find(
+      (phrase) =>
+        phrase.text.toLocaleLowerCase('pt-PT') === template.text.toLocaleLowerCase('pt-PT'),
+    );
+
+    ordered.push(
+      existing ?? {
+        id: retained.some((phrase) => phrase.id === template.id)
+          ? crypto.randomUUID()
+          : template.id,
+        text: template.text,
+      },
+    );
+  }
+
+  const phrases = [
+    ...ordered,
+    ...retained.filter((phrase) => !ordered.some((item) => item.id === phrase.id)),
+  ];
+  const slots: Board['slots'] = [...board.slots];
+
+  for (let index = 0; index < slots.length; index++) {
+    if (!phrases.some((phrase) => phrase.id === slots[index])) slots[index] = ordered[index].id;
+  }
+
+  if (
+    phrases.length === board.phrases.length &&
+    phrases.every((phrase, index) => phrase.id === board.phrases[index].id) &&
+    slots.every((id, index) => id === board.slots[index])
+  )
+    return board;
+
+  return { ...board, phrases, slots };
 }
 
 export function upgradeDefaultSlots(board: Board): Board {
