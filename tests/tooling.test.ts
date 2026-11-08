@@ -102,6 +102,36 @@ export function probe(value: any) {
     }
   }, 20000);
 
+  it('exposes Access credentials only to TEST smoke checks, never builds or PROD', () => {
+    const test = readFileSync(
+      new URL('../.github/workflows/deploy-to-test.yml', import.meta.url),
+      'utf8',
+    );
+    const production = readFileSync(
+      new URL('../.github/workflows/deploy-to-prod.yml', import.meta.url),
+      'utf8',
+    );
+    const validation = readFileSync(
+      new URL('../.github/workflows/execute-pr-validation.yml', import.meta.url),
+      'utf8',
+    );
+    const smokeStep = test
+      .split('- name: Smoke test deployment')[1]
+      ?.split('- name: Upload artifact')[0];
+
+    for (const name of ['CLOUDFLARE_ACCESS_CLIENT_ID', 'CLOUDFLARE_ACCESS_CLIENT_SECRET']) {
+      expect(smokeStep).toContain(`${name}: \${{ secrets.${name} }}`);
+
+      expect(test.split('- name: Smoke test deployment')[0]).not.toContain(name);
+
+      expect(test.split('- name: Upload artifact')[1]).not.toContain(name);
+
+      expect(production).not.toContain(name);
+
+      expect(validation).not.toContain(name);
+    }
+  });
+
   it('keeps commit message and ordered pre-commit gates installed', () => {
     const precommit = readFileSync(new URL('../.husky/pre-commit', import.meta.url), 'utf8');
     const commitmsg = readFileSync(new URL('../.husky/commit-msg', import.meta.url), 'utf8');

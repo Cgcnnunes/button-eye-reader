@@ -190,6 +190,39 @@ export async function smoke(environment: string): Promise<void> {
     throw new Error('Configured environment URL does not match the deployed Worker.');
   }
 
+  const headers =
+    environment === 'test'
+      ? {
+          'CF-Access-Client-Id': required('CLOUDFLARE_ACCESS_CLIENT_ID'),
+          'CF-Access-Client-Secret': required('CLOUDFLARE_ACCESS_CLIENT_SECRET'),
+        }
+      : undefined;
+
+  async function request(path: string, timeout: number): Promise<Response> {
+    const response = await fetch(`${url}${path}`, {
+      cache: 'no-store',
+      headers,
+      redirect: 'manual',
+      signal: AbortSignal.timeout(timeout),
+    });
+
+    if (
+      (response.status >= 300 && response.status < 400) ||
+      response.status === 401 ||
+      response.status === 403
+    ) {
+      throw new Error(
+        `Deployment smoke request rejected (${environment}, ${response.status}). ${
+          environment === 'test'
+            ? 'Check Cloudflare Access service token secrets and the Service Auth policy.'
+            : 'PROD must be publicly accessible without Cloudflare Access or redirects.'
+        }`,
+      );
+    }
+
+    return response;
+  }
+
   const marker = readFileSync('dist/release.json', 'utf8');
   const paths = [
     '/release.json',
@@ -199,29 +232,23 @@ export async function smoke(environment: string): Promise<void> {
     '/vision/wasm/vision_wasm_nosimd_internal.wasm',
   ];
 
-  // A new deployment can take a short time to reach the public workers.dev endpoint.
+  // A new deployment can take a short time to reach the workers.dev endpoint.
   for (let attempt = 0; attempt < 12; attempt += 1) {
-    const response = await fetch(`${url}/release.json`, {
-      cache: 'no-store',
-      signal: AbortSignal.timeout(15000),
-    });
+    const response = await request('/release.json', 15000);
 
     if (response.ok && (await response.text()) === marker) {
       break;
     }
 
     if (attempt === 11) {
-      throw new Error('Public Worker did not serve the tested release marker within one minute.');
+      throw new Error('Worker did not serve the tested release marker within one minute.');
     }
 
     await new Promise((resolve) => setTimeout(resolve, 5000));
   }
 
   for (const path of paths) {
-    const response = await fetch(`${url}${path}`, {
-      cache: 'no-store',
-      signal: AbortSignal.timeout(30000),
-    });
+    const response = await request(path, 30000);
     const type = response.headers.get('content-type') ?? '';
     const bytes = Buffer.from(await response.arrayBuffer());
 
@@ -231,7 +258,7 @@ export async function smoke(environment: string): Promise<void> {
       (path.endsWith('.task') && type.includes('text/html')) ||
       !bytes.equals(readFileSync(`dist${path === '/' ? '/index.html' : path}`))
     ) {
-      throw new Error(`Public deployment asset mismatch: ${path} (${response.status}, ${type}).`);
+      throw new Error(`Deployment asset mismatch: ${path} (${response.status}, ${type}).`);
     }
 
     if (
@@ -240,7 +267,7 @@ export async function smoke(environment: string): Promise<void> {
         response.headers.get('permissions-policy') !==
           'camera=(self), microphone=(), geolocation=()')
     ) {
-      throw new Error('Public deployment security headers are missing or incorrect.');
+      throw new Error('Deployment security headers are missing or incorrect.');
     }
   }
 

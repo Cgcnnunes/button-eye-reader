@@ -55,6 +55,8 @@ jobs:
       - name: Smoke test deployment
         run: node scripts/deployment.ts smoke test
         env:
+          CLOUDFLARE_ACCESS_CLIENT_ID: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_ID }}
+          CLOUDFLARE_ACCESS_CLIENT_SECRET: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_SECRET }}
           DEPLOYMENT_OUTPUT: ${{ runner.temp }}/test-deploy.jsonl
 
       - name: Upload artifact

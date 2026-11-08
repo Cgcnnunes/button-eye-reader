@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- Authenticate protected TEST smoke checks with a Cloudflare Access service token without exposing
+  credentials to builds or PROD, and report rejected requests without following redirects.
+- Document all deployment settings, human/service Access policies and the merged-PR TEST environment
+  branch rule.
 - Accept GitHub's exact squash PR-number suffix, correctly link feature-run provenance to the
   deployed squash commit, and update action runtimes with a pinned Ubuntu runner.
 - Keep PR validation scoped to PRs and independently verify merged code inside TEST deployment.
@@ -11,7 +15,7 @@
 - Superseded PR validation cancellation and separate TEST/PROD deployment queues with up to 100
   waiting runs per environment.
 - Separate TEST Worker deployment after validated squash merges; same-tag GitHub prereleases with
-  generated release notes only after public deployment checks.
+  generated release notes only after authenticated TEST deployment checks.
 - Manual tag-only PROD workflow with successful-run provenance, artifact identity/expiry/checksum
   validation, approval support, exact tested static assets and stable release promotion.
 - Explicit Worker environments and safer local TEST deployment command.

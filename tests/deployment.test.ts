@@ -98,6 +98,50 @@ function reply(path: string): Response {
   return Response.json({ id: 56 });
 }
 
+function configureSmoke(environment = 'test'): void {
+  const url = environment === 'test' ? proof.url : 'https://button-eye-reader.example.workers.dev';
+
+  vi.stubEnv('DEPLOYMENT_URL', url);
+
+  vi.stubEnv('DEPLOYMENT_OUTPUT', 'deploy.jsonl');
+
+  vi.stubEnv('CLOUDFLARE_ACCESS_CLIENT_ID', 'test-access-id');
+
+  vi.stubEnv('CLOUDFLARE_ACCESS_CLIENT_SECRET', 'test-access-secret');
+
+  const record = JSON.stringify({
+    targets: [url],
+    type: 'deploy',
+    version_id: proof.version,
+    worker_name: environment === 'test' ? proof.worker : 'button-eye-reader',
+    worker_name_overridden: false,
+    wrangler_environment: environment,
+  });
+
+  mocks.read.mockImplementation((path: string, encoding?: string) => {
+    if (path === 'deploy.jsonl') {
+      return record;
+    }
+
+    return encoding ? marker : Buffer.from(marker);
+  });
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() =>
+      Promise.resolve(
+        new Response(marker, {
+          headers: {
+            'content-security-policy': "frame-ancestors 'none'",
+            'content-type': 'application/wasm',
+            'permissions-policy': 'camera=(self), microphone=(), geolocation=()',
+          },
+        }),
+      ),
+    ),
+  );
+}
+
 describe('deployment API, artifact and promotion orchestration', () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -298,46 +342,25 @@ describe('deployment API, artifact and promotion orchestration', () => {
     }
   });
 
-  it('checks the public marker, exact asset bytes, WASM MIME and security headers', async () => {
-    vi.stubEnv('DEPLOYMENT_URL', proof.url);
-
-    vi.stubEnv('DEPLOYMENT_OUTPUT', 'deploy.jsonl');
-
-    const record = JSON.stringify({
-      targets: [proof.url],
-      type: 'deploy',
-      version_id: proof.version,
-      worker_name: proof.worker,
-      worker_name_overridden: false,
-      wrangler_environment: 'test',
-    });
-
-    mocks.read.mockImplementation((path: string, encoding?: string) => {
-      if (path === 'deploy.jsonl') {
-        return record;
-      }
-
-      return encoding ? marker : Buffer.from(marker);
-    });
-
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(() =>
-        Promise.resolve(
-          new Response(marker, {
-            headers: {
-              'content-security-policy': "frame-ancestors 'none'",
-              'content-type': 'application/wasm',
-              'permissions-policy': 'camera=(self), microphone=(), geolocation=()',
-            },
-          }),
-        ),
-      ),
-    );
+  it('authenticates every TEST marker and asset request while checking bytes and headers', async () => {
+    configureSmoke();
 
     await smoke('test');
 
     expect(fetch).toHaveBeenCalledTimes(6);
+
+    for (const [url, options] of vi.mocked(fetch).mock.calls) {
+      expect(url).toEqual(expect.stringContaining(`${proof.url}/`));
+
+      expect(options).toMatchObject({
+        cache: 'no-store',
+        headers: {
+          'CF-Access-Client-Id': 'test-access-id',
+          'CF-Access-Client-Secret': 'test-access-secret',
+        },
+        redirect: 'manual',
+      });
+    }
 
     vi.stubGlobal(
       'fetch',
@@ -349,5 +372,117 @@ describe('deployment API, artifact and promotion orchestration', () => {
     vi.stubEnv('DEPLOYMENT_URL', 'https://other.example.workers.dev');
 
     await expect(smoke('test')).rejects.toThrow('does not match');
+  });
+
+  it.each(['CLOUDFLARE_ACCESS_CLIENT_ID', 'CLOUDFLARE_ACCESS_CLIENT_SECRET'])(
+    'requires TEST setting %s before making requests',
+    async (name) => {
+      configureSmoke();
+
+      vi.stubEnv(name, '');
+
+      await expect(smoke('test')).rejects.toThrow(`Missing required environment setting: ${name}`);
+
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it('never sends Access credentials to PROD even when present in the environment', async () => {
+    configureSmoke('production');
+
+    await smoke('production');
+
+    expect(fetch).toHaveBeenCalledTimes(6);
+
+    for (const [, options] of vi.mocked(fetch).mock.calls) {
+      expect(options?.headers).toBeUndefined();
+
+      expect(options?.redirect).toBe('manual');
+    }
+
+    vi.stubEnv('CLOUDFLARE_ACCESS_CLIENT_ID', '');
+
+    vi.stubEnv('CLOUDFLARE_ACCESS_CLIENT_SECRET', '');
+
+    await expect(smoke('production')).resolves.toBeUndefined();
+  });
+
+  it.each([302, 401, 403])(
+    'reports Access rejection %s without following redirects or retrying',
+    async (status) => {
+      for (const successfulRequests of [0, 2]) {
+        configureSmoke();
+
+        vi.mocked(fetch).mockImplementationOnce(() =>
+          Promise.resolve(
+            new Response(successfulRequests === 0 ? '' : marker, {
+              headers: { Location: 'https://login.example.com' },
+              status: successfulRequests === 0 ? status : 200,
+            }),
+          ),
+        );
+
+        if (successfulRequests > 0) {
+          vi.mocked(fetch).mockImplementationOnce(() => Promise.resolve(new Response(marker)));
+
+          vi.mocked(fetch).mockImplementationOnce(() =>
+            Promise.resolve(
+              new Response('', {
+                headers: { Location: 'https://login.example.com' },
+                status,
+              }),
+            ),
+          );
+        }
+
+        await expect(smoke('test')).rejects.toThrow(
+          `Deployment smoke request rejected (test, ${status})`,
+        );
+
+        expect(fetch).toHaveBeenCalledTimes(successfulRequests + 1);
+
+        expect(fetch).not.toHaveBeenCalledWith(
+          expect.stringContaining('login.example.com'),
+          expect.anything(),
+        );
+      }
+    },
+  );
+
+  it('reports that PROD must remain public when it redirects to login', async () => {
+    configureSmoke('production');
+
+    vi.mocked(fetch).mockResolvedValue(new Response('', { status: 302 }));
+
+    await expect(smoke('production')).rejects.toThrow('PROD must be publicly accessible');
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves Access authentication when retrying a release marker during propagation', async () => {
+    configureSmoke();
+
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('previous release'));
+
+    vi.useFakeTimers();
+
+    try {
+      const pending = smoke('test');
+
+      await vi.advanceTimersByTimeAsync(5000);
+
+      await pending;
+
+      expect(fetch).toHaveBeenCalledTimes(7);
+
+      for (const [, options] of vi.mocked(fetch).mock.calls) {
+        expect(options?.headers).toEqual({
+          'CF-Access-Client-Id': 'test-access-id',
+          'CF-Access-Client-Secret': 'test-access-secret',
+        });
+      }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
