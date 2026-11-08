@@ -6,6 +6,27 @@ import { describe, expect, it } from 'vitest';
 const root = fileURLToPath(new URL('../', import.meta.url));
 
 describe('mandatory lint and hook configuration', () => {
+  it('uses height-adaptive tablet layouts without hiding clipped content', () => {
+    const styles = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8');
+    const tablet = styles
+      .split('@media (min-width: 700px) {')[1]
+      ?.split('@media (max-width: 699px)')[0];
+
+    expect(tablet).toContain('height: 100dvh');
+
+    expect(tablet).toContain('grid-template-rows: auto minmax(0, 1fr) auto auto');
+
+    expect(tablet).toContain('container-type: size');
+
+    expect(tablet).toContain('8cqh');
+
+    expect(tablet).toContain('resize: none');
+
+    expect(styles).not.toMatch(/overflow(?:-x|-y)?:\s*(?:hidden|clip)/);
+
+    expect(tablet).not.toContain('min-height: 380px');
+  });
+
   it('keeps static TEST and PROD free of custom tracking and report infrastructure', () => {
     const config = readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
     const production = config.split('"production": {')[1].split('"test": {')[0];

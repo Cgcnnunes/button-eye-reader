@@ -9,6 +9,8 @@ import {
   type Phrase,
   replaceSlot,
   STORAGE_KEY,
+  upgradeCatalogue,
+  upgradeDefaultSlots,
 } from './store';
 
 type Screen = 'board' | 'catalogue' | 'replace' | 'add';
@@ -29,7 +31,11 @@ function errorMessage(error: unknown): string {
 try {
   const raw = localStorage.getItem(STORAGE_KEY);
 
-  if (raw !== null) board = parseBoard(raw);
+  if (raw !== null) {
+    board = parseBoard(raw);
+
+    board = readSavedBoard(raw);
+  }
 } catch (error) {
   storageHealthy = false;
 
@@ -43,16 +49,31 @@ let selected: Phrase | null = null;
 app.innerHTML = `
   <div id="shell" class="shell">
     <header>
-      <div class="brand"><span class="brand-mark" aria-hidden="true">O</span><div><h1>O meu olhar</h1><p>Uma frase de cada vez</p></div></div>
-      <small class="experimental">EXPERIMENTAL</small>
+      <section class="guidance" aria-label="Instruções"><div><h1 id="screen-title"></h1><p id="screen-hint"></p></div></section>
     </header>
-    <section class="guidance" aria-label="Instruções"><div><h2 id="screen-title"></h2><p id="screen-hint"></p></div></section>
     <main id="content"></main>
-    <div class="feedback"><p id="spoken" role="status" aria-live="polite">Toque numa frase para falar.</p><p id="notice" role="alert"></p></div>
+    <div class="feedback"><p id="spoken" role="status" aria-live="polite"></p><p id="notice" role="alert"></p></div>
     <footer>
-      <span>Para quem acompanha:</span>
-      <button id="sound" class="helper">Testar som</button>
-      <span class="privacy">As frases ficam neste navegador. · v${__APP_VERSION__}</span>
+      <section id="caregiver-panel" hidden aria-labelledby="caregiver-label">
+        <div class="panel-heading">
+          <h2 id="caregiver-label">Opções de quem acompanha</h2>
+          <button id="caregiver-close" type="button" class="helper">Fechar</button>
+        </div>
+        <p>Prepare o som e as frases. Para evitar escolhas involuntárias, pause o Rastreamento dos Olhos nos ajustes do iPad antes de usar esta área.</p>
+        <div class="helper-buttons" role="group" aria-labelledby="caregiver-label">
+          <button id="sound" type="button" class="helper"><strong>Testar som</strong><span>Confirmar a voz e o volume</span></button>
+          <button id="add" type="button" class="helper" data-action="add"><strong>Adicionar frase</strong><span>Escrever uma nova frase no catálogo</span></button>
+          <button id="eye-help" type="button" class="helper" aria-expanded="false" aria-controls="eye-help-text"><strong>Ajuda com o Rastreamento dos Olhos</strong><span>Como ativar ou pausar no iPad</span></button>
+        </div>
+        <p id="eye-help-text" hidden>No iPad: Ajustes -> Acessibilidade -> Rastreamento dos Olhos. Se disponível, configure o Atalho de acessibilidade para acesso pelo botão superior. Esta aplicação não ativa nem desativa o rastreamento.</p>
+      </section>
+      <div class="footer-bar">
+        <div class="caregiver-entry">
+          <button id="caregiver-toggle" type="button" class="helper" aria-expanded="false" aria-controls="caregiver-panel">Acompanhante · Opções</button>
+          <span id="caregiver-hint">Peça a quem acompanha para aceder às configurações.</span>
+        </div>
+        <div class="privacy"><span>As frases ficam neste navegador.</span><span class="release-label"><small class="experimental">EXPERIMENTAL</small><span>v${__APP_VERSION__}</span></span></div>
+      </div>
     </footer>
   </div>`;
 
@@ -119,15 +140,33 @@ function makeButton(
 
   button.append(label);
 
-  if (!options.secondary) {
+  if (action === 'previous' || action === 'next') {
+    button.classList.add('page-navigation');
+
+    const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+
+    arrow.setAttribute('class', 'page-arrow');
+
+    arrow.setAttribute('aria-hidden', 'true');
+
+    arrow.setAttribute('viewBox', '0 0 24 24');
+
+    arrow.setAttribute('focusable', 'false');
+
+    const chevron = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+
+    chevron.setAttribute('points', action === 'previous' ? '16,4 8,12 16,20' : '8,4 16,12 8,20');
+
+    arrow.append(chevron);
+
+    if (action === 'previous') button.prepend(arrow);
+    else button.append(arrow);
+  }
+
+  if (!options.secondary && screen === 'replace') {
     const hint = document.createElement('small');
 
-    hint.textContent =
-      screen === 'board'
-        ? 'Falar'
-        : screen === 'replace'
-          ? 'Substituir este botão'
-          : 'Escolher frase';
+    hint.textContent = 'Substituir este botão';
 
     button.append(hint);
   }
@@ -143,6 +182,10 @@ function render(): void {
   content.replaceChildren();
 
   element('shell').classList.toggle('board-screen', screen === 'board');
+
+  element('add').hidden = screen !== 'board';
+
+  setCaregiverPanel(false);
 
   const grid = document.createElement('div');
 
@@ -172,6 +215,16 @@ function render(): void {
           ? `Vai colocar: «${selected?.text ?? ''}»`
           : 'Área de escrita para quem acompanha.';
 
+  if (screen === 'catalogue') {
+    const pageLabel = document.createElement('strong');
+
+    pageLabel.className = 'page-indicator';
+
+    pageLabel.textContent = `página ${page + 1} de ${Math.ceil(board.phrases.length / 4)}`;
+
+    element('screen-hint').replaceChildren('Catálogo · ', pageLabel);
+  }
+
   if (screen === 'board' || screen === 'replace') {
     board.slots.forEach((id, index) => {
       grid.append(
@@ -185,19 +238,11 @@ function render(): void {
     });
 
     if (screen === 'board') {
-      controls.append(makeButton('Escolher outra frase', 'catalogue', { secondary: true }));
+      controls.append(
+        makeButton('Escolher outra frase guardada', 'catalogue', { secondary: true }),
+      );
 
-      const add = makeButton('Adicionar frase', 'add', { secondary: true });
-
-      add.classList.add('caregiver');
-
-      const small = document.createElement('small');
-
-      small.textContent = 'Para quem acompanha';
-
-      add.append(small);
-
-      controls.append(add);
+      controls.classList.add('board-controls');
     } else {
       controls.append(makeButton('Voltar ao catálogo', 'catalogue', { secondary: true }));
 
@@ -249,6 +294,23 @@ function persist(next: Board): boolean {
 
     return false;
   }
+}
+
+function readSavedBoard(raw: string): Board {
+  const saved = parseBoard(raw);
+  const upgraded = upgradeCatalogue(upgradeDefaultSlots(saved));
+
+  if (upgraded !== saved) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(upgraded));
+    } catch (error) {
+      throw new Error(`Não foi possível guardar a atualização dos botões. ${errorMessage(error)}`, {
+        cause: error,
+      });
+    }
+  }
+
+  return upgraded;
 }
 
 function activate(button: HTMLButtonElement): void {
@@ -342,6 +404,58 @@ element('sound').addEventListener('click', () => {
   speaker.speak('Olá. Esta é a minha voz.');
 });
 
+const addButton = element('add', HTMLButtonElement);
+
+function setCaregiverPanel(open: boolean): void {
+  element('caregiver-panel').hidden = !open;
+
+  element('caregiver-toggle').setAttribute('aria-expanded', String(open));
+
+  element('caregiver-hint').hidden = open;
+
+  element('shell').classList.toggle('caregiver-open', open);
+
+  if (!open) {
+    element('eye-help-text').hidden = true;
+
+    element('eye-help').setAttribute('aria-expanded', 'false');
+  }
+}
+
+element('caregiver-toggle').addEventListener('click', () => {
+  const open = element('caregiver-panel').hidden === true;
+
+  setCaregiverPanel(open);
+
+  if (open) element('caregiver-close').focus();
+});
+
+element('caregiver-close').addEventListener('click', () => {
+  setCaregiverPanel(false);
+
+  element('caregiver-toggle').focus();
+});
+
+element('eye-help').addEventListener('click', () => {
+  const open = element('eye-help-text').hidden === true;
+
+  element('eye-help-text').hidden = !open;
+
+  element('eye-help').setAttribute('aria-expanded', String(open));
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !element('caregiver-panel').hidden) {
+    setCaregiverPanel(false);
+
+    element('caregiver-toggle').focus();
+  }
+});
+
+addButton.addEventListener('click', () => {
+  activate(addButton);
+});
+
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) speaker.stop();
 });
@@ -356,7 +470,7 @@ window.addEventListener('storage', (event) => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
 
-    board = raw === null ? defaultBoard() : parseBoard(raw);
+    board = raw === null ? defaultBoard() : readSavedBoard(raw);
 
     storageHealthy = true;
 

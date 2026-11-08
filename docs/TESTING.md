@@ -74,6 +74,20 @@ available. No face images or recordings are needed for testing.
 
 - [ ] Four speaking targets and catalogue/caregiver controls fit in portrait and landscape,
       including reduced Safari viewport height and 100-character phrases.
+- [ ] Tablet targets have height-adaptive gaps; the bottom-left caregiver toggle opens a full-width
+      panel with labelled sound, add-phrase and Eye Tracking help. The initial speech prompt is
+      empty. Navigation, writing and return to the board still work; helpers do not overlap long
+      status/error text.
+- [ ] Panel close/Escape restores focus, navigation closes it, and help shows "Ajustes ->
+      Acessibilidade -> Rastreamento dos Olhos" without claiming to toggle native tracking.
+- [ ] Guidance is at the top with no logo; speaking buttons show only centered phrase text. The
+      board catalogue button has larger text, and experimental status is beside the footer version.
+      The board catalogue button adapts from 72px to 96px.
+- [ ] New boards start with yes/no/bathroom/pain. Existing original bottom defaults upgrade and
+      persist; customized slots/text remain unchanged. Storage failure reports an error.
+- [ ] New and saved catalogues share the first twelve templates in the prescribed order; thirst is
+      included and the four retired defaults are absent. Retired template assignments use the
+      corresponding starting slot; caregiver-added/edited phrases remain available.
 - [ ] Sound test and all touch phrases work; check actual pt-PT accent, volume and missing-voice
       errors.
 - [ ] Native Eye Tracking activates each speaking button at least ten times. Record intended
@@ -81,6 +95,10 @@ available. No face images or recordings are needed for testing.
 - [ ] Prolonged fixation and repeated system activations do not cause unacceptable repeated speech.
       Check both during speech and after speech finishes; the busy guard is not a gaze repeat lock.
 - [ ] Catalogue has four choices/page; first/last navigation disables correctly.
+- [ ] Saved-phrase navigation shows large left/right arrows and a highlighted current-page label;
+      labels update on navigation and arrow decorations do not change accessible button names.
+- [ ] Pagination arrows and text share a vertical center; previous/next use a distinct blue while
+      the return control keeps its original color.
 - [ ] Navigate, select and replace phrases with native input; reload and confirm persistence.
 - [ ] Caregiver additions persist; empty/duplicate/overlong input is rejected and text is literal.
       The caregiver manages system tracking if needed during writing.
@@ -93,6 +111,21 @@ available. No face images or recordings are needed for testing.
 
 No physical iPad acceptance has been established by automated tests. Native tracking is not clinical
 validation or proof of ongoing reliability.
+
+### Viewport-fit evidence
+
+The iPad (A16) display is 1640×2360 physical pixels
+([Apple specifications](https://www.apple.com/ipad-11/specs/)). Desktop browser checks use nominal
+820×1180 / 1180×820 CSS viewports and reduced Safari-height scenarios, not a physical-device result.
+
+Check board, catalogue, replacement and writing at 820×1180, 820×1000, 1180×820, 1180×650, 1180×550,
+768×900 and 1024×600. Require no horizontal/vertical page overflow, no button/input text clipping,
+and all controls/status/footer bounds inside the viewport. Repeat with 100-character phrases and
+simultaneous speech/error feedback. These desktop checks passed for this layout.
+
+On the actual iPad, repeat with Safari toolbars shown/hidden and after rotation. Software keyboard,
+Split View and enlarged text/zoom alter available space and need separate physical acceptance; do
+not claim that desktop tests establish those conditions or all possible content lengths.
 
 ## Testing together
 

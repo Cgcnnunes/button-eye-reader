@@ -11,7 +11,7 @@ accuracy.
 
 | Feature        | Behavior                                                                           |
 | -------------- | ---------------------------------------------------------------------------------- |
-| Speaking board | Four configurable phrases; 28 initial phrases                                      |
+| Speaking board | Four configurable phrases; 26 initial phrases                                      |
 | Catalogue      | Four choices per page; choose a phrase, then replace a board slot without typing   |
 | New phrases    | Caregiver-only writing workflow; up to 100 characters                              |
 | Speech         | Local system voice, preferring exact pt-PT; Safari may require touch authorization |
