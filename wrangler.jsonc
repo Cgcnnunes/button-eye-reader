@@ -19,7 +19,9 @@
       "migrations_dir": "migrations",
     },
   ],
-  "observability": { "enabled": false },
+  "observability": {
+    "enabled": false,
+  },
   "env": {
     "production": {
       "name": "button-eye-reader-prod",
@@ -27,7 +29,7 @@
         {
           "binding": "DB",
           "database_name": "button-eye-reader-prod",
-          "database_id": "REPLACE_WITH_PRODUCTION_D1_DATABASE_ID",
+          "database_id": "dd402c40-c51b-48a0-8e7d-48a7f08e8d04",
           "migrations_dir": "migrations",
         },
       ],
@@ -44,7 +46,7 @@
         {
           "binding": "DB",
           "database_name": "button-eye-reader-test",
-          "database_id": "REPLACE_WITH_TEST_D1_DATABASE_ID",
+          "database_id": "612d2c7f-40fd-4922-a137-ce6c9aa7610f",
           "migrations_dir": "migrations",
         },
       ],

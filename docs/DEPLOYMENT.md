@@ -70,10 +70,10 @@ belong to the corresponding environment, not browser local storage.
 
 ### Provision the account databases before deployment
 
-**Remote deployment is blocked until the two placeholder database IDs in `wrangler.jsonc` are
-replaced with real, distinct D1 IDs.** The all-zero top-level ID is for local development only.
-There is no working-account fallback: absent `DB`, failed migrations, or unavailable D1 produce
-HTTP 503. Never point TEST and PROD at the same database.
+`wrangler.jsonc` now contains the provisioned, distinct TEST and PROD D1 IDs. When deploying to
+another account, replace both remote IDs with that account's database IDs. The all-zero top-level ID
+is for local development only. There is no working-account fallback: absent `DB`, failed migrations,
+or unavailable D1 produce HTTP 503. Never point TEST and PROD at the same database.
 
 Using authenticated Wrangler in the correct Cloudflare account:
 
@@ -85,7 +85,10 @@ npx wrangler d1 create button-eye-reader-prod
 
 Copy the returned IDs into `env.test.d1_databases[0].database_id` and
 `env.production.d1_databases[0].database_id`. Keep each binding named `DB` and each `migrations_dir`
-set to `migrations`. Confirm the selected account/IDs before applying:
+set to `migrations`. Commit and merge these configuration changes through a feature PR before
+expecting GitHub Actions to use them: local/staged edits do not change a workflow's checked-out
+commit. A failed run with placeholder IDs cannot be repaired by rerunning that same commit. Confirm
+the selected account/IDs before applying:
 
 ```sh
 npx wrangler d1 migrations apply DB --env test --remote

@@ -2,6 +2,8 @@
 
 ## 0.5.0
 
+- Bind the provisioned, separate TEST/PROD D1 databases so deployment migrations use real database
+  IDs; document why local configuration changes must be committed before CI deployment.
 - Add invitation-only custom accounts and administrator-issued one-use password setup/recovery, with
   remembered sessions and explicit logout.
 - Store each account's phrases, catalogue order and four speaking positions in separate TEST/PROD
