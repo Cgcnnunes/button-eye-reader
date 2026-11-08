@@ -72,6 +72,9 @@ jobs:
           EXPECTED_DIGEST: ${{ needs.validate.outputs.digest }}
           EXPECTED_SHA: ${{ needs.validate.outputs.sha }}
 
+      - name: Apply PROD database migrations
+        run: npx wrangler d1 migrations apply DB --remote --env production
+
       - name: Deploy to PROD
         run: npx wrangler deploy --env production
         env:

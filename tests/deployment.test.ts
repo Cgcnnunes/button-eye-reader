@@ -129,15 +129,20 @@ function configureSmoke(environment = 'test'): void {
 
   vi.stubGlobal(
     'fetch',
-    vi.fn(() =>
+    vi.fn((path: string) =>
       Promise.resolve(
-        new Response(marker, {
-          headers: {
-            'content-security-policy': "frame-ancestors 'none'",
-            'content-type': 'text/html',
-            'permissions-policy': 'camera=(), microphone=(), geolocation=()',
-          },
-        }),
+        path.endsWith('/api/session')
+          ? Response.json(
+              { error: 'Inicie sessão.' },
+              { headers: { 'cache-control': 'no-store' }, status: 401 },
+            )
+          : new Response(marker, {
+              headers: {
+                'content-security-policy': "frame-ancestors 'none'",
+                'content-type': 'text/html',
+                'permissions-policy': 'camera=(), microphone=(), geolocation=()',
+              },
+            }),
       ),
     ),
   );
@@ -348,7 +353,7 @@ describe('deployment API, artifact and promotion orchestration', () => {
 
     await smoke('test');
 
-    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch).toHaveBeenCalledTimes(4);
 
     for (const [url, options] of vi.mocked(fetch).mock.calls) {
       expect(url).toEqual(expect.stringContaining(`${proof.url}/`));
@@ -384,7 +389,7 @@ describe('deployment API, artifact and promotion orchestration', () => {
 
     await expect(smoke('test')).resolves.toBeUndefined();
 
-    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch).toHaveBeenCalledTimes(4);
 
     for (const [, options] of vi.mocked(fetch).mock.calls) {
       expect(options?.headers).toBeUndefined();
@@ -411,7 +416,7 @@ describe('deployment API, artifact and promotion orchestration', () => {
 
     await smoke('production');
 
-    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch).toHaveBeenCalledTimes(4);
 
     for (const [, options] of vi.mocked(fetch).mock.calls) {
       expect(options?.headers).toBeUndefined();
@@ -468,6 +473,32 @@ describe('deployment API, artifact and promotion orchestration', () => {
     },
   );
 
+  it('fails account smoke checks for SPA fallbacks, missing databases and anonymous data exposure', async () => {
+    for (const reply of [
+      new Response('<html>fallback</html>'),
+      Response.json({ error: 'Unavailable' }, { status: 503 }),
+      Response.json(
+        { board: {}, error: 'Denied' },
+        { headers: { 'cache-control': 'no-store' }, status: 401 },
+      ),
+      Response.json({ error: 'Denied' }, { status: 401 }),
+    ]) {
+      configureSmoke();
+
+      const original = vi.mocked(fetch).getMockImplementation();
+
+      if (!original) throw new Error('Missing smoke mock');
+
+      vi.mocked(fetch).mockImplementation((...args) =>
+        typeof args[0] === 'string' && args[0].endsWith('/api/session')
+          ? Promise.resolve(reply)
+          : original(...args),
+      );
+
+      await expect(smoke('test')).rejects.toThrow('account API');
+    }
+  });
+
   it('reports that PROD must remain public when it redirects to login', async () => {
     configureSmoke('production');
 
@@ -492,7 +523,7 @@ describe('deployment API, artifact and promotion orchestration', () => {
 
       await pending;
 
-      expect(fetch).toHaveBeenCalledTimes(4);
+      expect(fetch).toHaveBeenCalledTimes(5);
 
       for (const [, options] of vi.mocked(fetch).mock.calls) {
         expect(options?.headers).toEqual({

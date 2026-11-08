@@ -1,14 +1,27 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defaultBoard, parseBoard, STORAGE_KEY } from '../src/store';
+import { type Board, defaultBoard, STORAGE_KEY } from '../src/store';
 
 const mocks = vi.hoisted(() => ({
   changed: vi.fn<(busy: boolean) => void>(),
+  getSession: vi.fn(),
+  login: vi.fn(),
+  logout: vi.fn(),
   notify: vi.fn<(message: string) => void>(),
+  saveBoard: vi.fn(),
+  setup: vi.fn(),
   speak: vi.fn<(text: string) => void>(),
   speaking: false,
   stop: vi.fn<() => void>(),
+}));
+
+vi.mock('../src/account-client', () => ({
+  getSession: mocks.getSession,
+  login: mocks.login,
+  logout: mocks.logout,
+  saveBoard: mocks.saveBoard,
+  setup: mocks.setup,
 }));
 
 vi.mock('../src/speech', () => ({
@@ -78,6 +91,21 @@ describe('standard accessible phrase board', () => {
     vi.clearAllMocks();
 
     mocks.speaking = false;
+
+    history.replaceState(null, '', '/');
+
+    mocks.getSession.mockResolvedValue({
+      board: defaultBoard(),
+      csrf: 'csrf',
+      revision: 1,
+      username: 'helper',
+    });
+
+    mocks.saveBoard.mockImplementation((board: Board, revision: number) =>
+      Promise.resolve({ board, revision: revision + 1 }),
+    );
+
+    mocks.logout.mockResolvedValue(undefined);
 
     document.body.innerHTML = '<div id="app"></div>';
 
@@ -241,7 +269,7 @@ describe('standard accessible phrase board', () => {
     expect(document.getElementById('caregiver-panel')?.hidden).toBe(true);
   });
 
-  it('preserves the loaded saved board and reports a startup upgrade write failure', async () => {
+  it('does not import browser phrases into a cloud account', async () => {
     const old = defaultBoard();
 
     old.slots = ['template-0', 'template-1', 'template-2', 'template-3'];
@@ -250,17 +278,13 @@ describe('standard accessible phrase board', () => {
 
     localStorage.setItem(STORAGE_KEY, raw);
 
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new DOMException('Sem espaço', 'QuotaExceededError');
-    });
-
     await load();
 
-    expect(button('speak:2').textContent).toContain('Quero água');
+    expect(button('speak:2').textContent).toContain('casa de banho');
 
-    expect(button('speak:3').textContent).toContain('Preciso de ajuda');
+    expect(button('speak:3').textContent).toContain('Tenho dores');
 
-    expect(text('notice')).toContain('guardar a atualização');
+    expect(mocks.saveBoard).not.toHaveBeenCalled();
 
     expect(localStorage.getItem(STORAGE_KEY)).toBe(raw);
   });
@@ -342,7 +366,17 @@ describe('standard accessible phrase board', () => {
 
     button('replace:0').click();
 
-    expect(parseBoard(localStorage.getItem(STORAGE_KEY) ?? '').slots[0]).toBe('template-4');
+    await vi.waitFor(() => {
+      expect(text('screen-title')).toBe('O que quer dizer?');
+    });
+
+    expect(mocks.saveBoard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slots: ['template-4', 'template-1', 'template-12', 'template-28'],
+      }),
+      1,
+      'csrf',
+    );
 
     expect(text('spoken')).toContain('Botão atualizado');
 
@@ -391,7 +425,7 @@ describe('standard accessible phrase board', () => {
     expect(document.querySelector('.phrase-button small')).toBeNull();
   });
 
-  it('persists old default upgrades and preserves saved choices when migration storage fails', async () => {
+  it('preserves cloud ordering without reapplying the template migration', async () => {
     const old = defaultBoard();
 
     old.phrases = old.phrases.filter((phrase) => phrase.id !== 'template-28');
@@ -400,27 +434,22 @@ describe('standard accessible phrase board', () => {
 
     const raw = JSON.stringify(old);
 
-    localStorage.setItem(STORAGE_KEY, raw);
+    mocks.getSession.mockResolvedValue({
+      board: old,
+      csrf: 'csrf',
+      revision: 2,
+      username: 'helper',
+    });
 
     await load();
 
-    expect(button('speak:2').textContent).toContain('casa de banho');
+    expect(button('speak:2').textContent).toContain('Quero água');
 
-    expect(button('speak:3').textContent).toContain('Tenho dores');
+    expect(button('speak:3').textContent).toContain('Preciso de ajuda');
 
-    expect(parseBoard(localStorage.getItem(STORAGE_KEY) ?? '').phrases).toHaveLength(26);
+    expect(mocks.saveBoard).not.toHaveBeenCalled();
 
-    localStorage.setItem(STORAGE_KEY, raw);
-
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new DOMException('Sem espaço', 'QuotaExceededError');
-    });
-
-    window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEY }));
-
-    expect(text('notice')).toContain('guardar a atualização');
-
-    expect(localStorage.getItem(STORAGE_KEY)).toBe(raw);
+    expect(JSON.stringify(old)).toBe(raw);
   });
 
   it('keeps writing caregiver-labelled and does not claim to disable system Eye Tracking', async () => {
@@ -446,7 +475,9 @@ describe('standard accessible phrase board', () => {
 
     submit('<img src=x onerror=alert(1)>');
 
-    expect(text('notice')).toContain('Frase guardada');
+    await vi.waitFor(() => {
+      expect(text('notice')).toContain('Frase guardada');
+    });
 
     expect(document.querySelector('main img')).toBeNull();
 
@@ -467,7 +498,7 @@ describe('standard accessible phrase board', () => {
     board.phrases[1].text =
       'Uma frase longa com muitos caracteres para verificar a apresentação sem alterar o conteúdo.';
 
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(board));
+    mocks.getSession.mockResolvedValue({ board, csrf: 'csrf', revision: 1, username: 'helper' });
 
     await load();
 
@@ -476,30 +507,20 @@ describe('standard accessible phrase board', () => {
     expect(button('speak:1').classList.contains('long-phrase')).toBe(true);
   });
 
-  it('does not overwrite corrupt saved data', async () => {
-    localStorage.setItem(STORAGE_KEY, '{bad');
+  it('reports session bootstrap errors and allows login retry', async () => {
+    mocks.getSession.mockRejectedValue(new Error('Offline'));
 
     await load();
 
-    expect(text('notice')).toContain('não serão alterados');
+    expect(text('notice')).toContain('Offline');
 
-    button('catalogue').click();
-
-    button('choose:template-1').click();
-
-    button('replace:0').click();
-
-    expect(localStorage.getItem(STORAGE_KEY)).toBe('{bad');
-
-    expect(text('notice')).toContain('Não as vamos substituir');
+    expect(document.querySelector('#login-form')).not.toBeNull();
   });
 
-  it('reports storage quota errors without claiming a successful replacement or addition', async () => {
+  it('reports save conflicts without claiming a successful replacement or addition', async () => {
     await load();
 
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new DOMException('Sem espaço', 'QuotaExceededError');
-    });
+    mocks.saveBoard.mockRejectedValue(new Error('Conflito: outra página guardou alterações.'));
 
     button('catalogue').click();
 
@@ -507,7 +528,9 @@ describe('standard accessible phrase board', () => {
 
     button('replace:0').click();
 
-    expect(text('notice')).toContain('Nada foi alterado');
+    await vi.waitFor(() => {
+      expect(text('notice')).toContain('Nada foi alterado');
+    });
 
     expect(text('screen-title')).toBe('Qual botão quer mudar?');
 
@@ -517,12 +540,16 @@ describe('standard accessible phrase board', () => {
 
     submit('Uma frase nova');
 
+    await vi.waitFor(() => {
+      expect(mocks.saveBoard).toHaveBeenCalledTimes(2);
+    });
+
     expect(document.querySelector('form')).not.toBeNull();
 
     expect(text('notice')).toContain('Nada foi alterado');
   });
 
-  it('refreshes cross-tab phrase changes and handles cleared, unrelated and corrupt storage', async () => {
+  it('does not treat cross-tab local storage changes as cloud preferences', async () => {
     await load();
 
     button('catalogue').click();
@@ -535,7 +562,7 @@ describe('standard accessible phrase board', () => {
 
     window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEY }));
 
-    expect(text('notice')).toContain('noutro separador');
+    expect(text('screen-title')).toBe('Escolha uma frase');
 
     localStorage.removeItem(STORAGE_KEY);
 
@@ -547,7 +574,7 @@ describe('standard accessible phrase board', () => {
 
     window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEY }));
 
-    expect(text('notice')).toContain('não puderam ser lidas');
+    expect(text('notice')).toBe('');
   });
 
   it('stops speech on hiding or leaving, without resetting the board on viewport changes', async () => {
@@ -620,5 +647,240 @@ describe('standard accessible phrase board', () => {
     document.querySelector('form')?.dispatchEvent(new Event('submit', { cancelable: true }));
 
     expect(text('notice')).toContain('tipo incorreto');
+  });
+
+  it('shows the logo only while logged out, signs in and revokes the session on logout', async () => {
+    mocks.getSession.mockResolvedValue(null);
+
+    mocks.login.mockResolvedValue({
+      board: defaultBoard(),
+      csrf: 'csrf',
+      revision: 4,
+      username: 'helper',
+    });
+
+    await load();
+
+    expect(document.querySelector('img')?.getAttribute('src')).toBe('/logo.svg');
+
+    const username = document.querySelector<HTMLInputElement>('#username');
+    const password = document.querySelector<HTMLInputElement>('#password');
+
+    if (!username || !password) throw new Error('Missing login inputs');
+
+    username.value = 'helper';
+
+    password.value = 'strong-password';
+
+    document.querySelector('form')?.dispatchEvent(new Event('submit', { cancelable: true }));
+
+    await vi.waitFor(() => {
+      expect(document.querySelectorAll('.phrase-button')).toHaveLength(4);
+    });
+
+    expect(mocks.login).toHaveBeenCalledWith('helper', 'strong-password');
+
+    expect(location.pathname).toBe('/app');
+
+    expect(document.querySelector('img')).toBeNull();
+
+    button('logout').click();
+
+    await vi.waitFor(() => {
+      expect(document.querySelector('#login-form')).not.toBeNull();
+    });
+
+    expect(mocks.logout).toHaveBeenCalledWith('csrf');
+
+    expect(location.pathname).toBe('/');
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  });
+
+  it('surfaces login and logout failures without falsely changing authentication', async () => {
+    mocks.getSession.mockResolvedValue(null);
+
+    mocks.login.mockRejectedValue('Unexpected failure');
+
+    await load();
+
+    document.querySelector('form')?.dispatchEvent(new Event('submit', { cancelable: true }));
+
+    await vi.waitFor(() => {
+      expect(text('notice')).toContain('erro inesperado');
+    });
+
+    mocks.login.mockResolvedValue({
+      board: defaultBoard(),
+      csrf: 'csrf',
+      revision: 0,
+      username: 'helper',
+    });
+
+    document.querySelector('form')?.dispatchEvent(new Event('submit', { cancelable: true }));
+
+    await vi.waitFor(() => {
+      expect(document.querySelectorAll('.phrase-button')).toHaveLength(4);
+    });
+
+    mocks.logout.mockRejectedValue(new Error('Offline'));
+
+    button('logout').click();
+
+    await vi.waitFor(() => {
+      expect(text('notice')).toContain('terminar a sessão');
+    });
+
+    expect(document.querySelectorAll('.phrase-button')).toHaveLength(4);
+  });
+
+  it('consumes invitation/reset fragments without sending them in subsequent URLs', async () => {
+    history.replaceState(null, '', '/#setup=single-use-token');
+
+    mocks.setup.mockResolvedValue({
+      board: defaultBoard(),
+      csrf: 'csrf',
+      revision: 0,
+      username: 'helper',
+    });
+
+    await load();
+
+    expect(mocks.getSession).not.toHaveBeenCalled();
+
+    expect(location.hash).toBe('');
+
+    expect(document.querySelector<HTMLInputElement>('#username')?.hidden).toBe(true);
+
+    const password = document.querySelector<HTMLInputElement>('#password');
+
+    if (!password) throw new Error('Missing password');
+
+    password.value = 'strong-password';
+
+    document.querySelector('form')?.dispatchEvent(new Event('submit', { cancelable: true }));
+
+    await vi.waitFor(() => {
+      expect(document.querySelectorAll('.phrase-button')).toHaveLength(4);
+    });
+
+    expect(mocks.setup).toHaveBeenCalledWith('single-use-token', 'strong-password');
+  });
+
+  it('lets the caregiver sort slots and catalogue independently and insert a phrase at a chosen position', async () => {
+    await load();
+
+    button('sort-slots').click();
+
+    expect(button('order-up').disabled).toBe(true);
+
+    button('order-down').click();
+
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLSelectElement>('#order-phrase')?.value).toBe('1');
+    });
+
+    expect(mocks.saveBoard).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        slots: ['template-1', 'template-0', 'template-12', 'template-28'],
+      }),
+      1,
+      'csrf',
+    );
+
+    button('order-up').click();
+
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLSelectElement>('#order-phrase')?.value).toBe('0');
+    });
+
+    button('order-back').click();
+
+    button('sort-catalogue').click();
+
+    const chooser = document.querySelector<HTMLSelectElement>('#order-phrase');
+
+    if (!chooser) throw new Error('Missing ordering chooser');
+
+    chooser.value = '25';
+
+    chooser.dispatchEvent(new Event('change'));
+
+    expect(button('order-down').disabled).toBe(true);
+
+    button('order-up').click();
+
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLSelectElement>('#order-phrase')?.value).toBe('24');
+    });
+
+    button('order-back').click();
+
+    button('add').click();
+
+    const position = document.querySelector<HTMLSelectElement>('#phrase-position');
+
+    if (!position) throw new Error('Missing phrase position');
+
+    position.value = '0';
+
+    submit('Uma frase nova');
+
+    await vi.waitFor(() => {
+      expect(text('screen-title')).toBe('Escolha uma frase');
+    });
+
+    expect(document.querySelector('.phrase-button')?.textContent).toBe('Uma frase nova');
+  });
+
+  it('locks the board and caregiver navigation while saving, preventing duplicate changes and logout races', async () => {
+    await load();
+
+    let complete: ((value: { board: Board; revision: number }) => void) | undefined;
+
+    mocks.saveBoard.mockImplementation(
+      () =>
+        new Promise<{ board: Board; revision: number }>((resolve) => {
+          complete = resolve;
+        }),
+    );
+
+    button('sort-slots').click();
+
+    button('order-down').click();
+
+    button('order-down').click();
+
+    button('logout').click();
+
+    expect(mocks.saveBoard).toHaveBeenCalledTimes(1);
+
+    expect(mocks.logout).not.toHaveBeenCalled();
+
+    expect(document.getElementById('shell')?.inert).toBe(true);
+
+    if (!complete) throw new Error('Missing pending save');
+
+    complete({ board: defaultBoard(), revision: 1 });
+
+    await vi.waitFor(() => {
+      expect(document.getElementById('shell')?.inert).toBe(false);
+    });
+  });
+
+  it('keeps ordering controls and local board unchanged if cloud saving fails', async () => {
+    await load();
+
+    mocks.saveBoard.mockRejectedValue(new Error('Offline'));
+
+    button('sort-slots').click();
+
+    button('order-down').click();
+
+    await vi.waitFor(() => {
+      expect(text('notice')).toContain('Offline');
+    });
+
+    expect(document.querySelector<HTMLSelectElement>('#order-phrase')?.value).toBe('0');
   });
 });

@@ -54,9 +54,11 @@ Every main push starts **Deploy to TEST**, but only an eligible squash commit de
 - Meaningful documentation and correct version/release kind.
 - Successful `npm run verify` within that TEST workflow, independently of PR validation.
 
-After smoke checks, the workflow saves the tested static artifact and creates an immutable annotated
-tag/prerelease with generated notes, TEST URL and PR/run/artifact provenance. No extra version
-commit or automatic PR merge is created. Existing tags never move.
+The workflow applies TEST D1 migrations before Worker deployment. Provision the database and token
+permissions before merging the first account release; missing bindings/migrations fail deployment,
+not authentication silently. After smoke checks, the workflow saves the tested static artifact and
+creates an immutable annotated tag/prerelease with generated notes, TEST URL and PR/run/artifact
+provenance. No extra version commit or automatic PR merge is created. Existing tags never move.
 
 TEST's URL is stable; later merges replace its content. Record the tested `release.json` tag/SHA and
 device results before that happens. Never approve an old tag using a different version now on TEST.
@@ -75,7 +77,10 @@ device results before that happens. Never approve an old tag using a different v
 
 3. The workflow validates the tag, TEST run and artifact. If configured, the production environment
    waits for reviewer approval; validation is repeated after the wait.
-4. It downloads/hashes the original artifact, deploys it without a build, then smoke-tests PROD.
+4. It downloads/hashes the original artifact, applies the tagged PROD D1 migrations, deploys it
+   without rebuilding the site, then smoke-tests PROD. Worker code comes from that same tested
+   commit. Migrations must remain forward-compatible with the preceding live Worker: database
+   changes and deployment are not atomic, and restoring old assets does not roll back D1.
 5. Only after success does the same release become stable/latest. The tag stays unchanged.
 
 Validation requires an annotated tag on main, matching manifests, prerelease status, exact

@@ -6,8 +6,9 @@ system.
 
 ## Runtime
 
-Static TypeScript/CSS built by Vite, served by Cloudflare Workers Static Assets. No UI framework,
-application database, external speech API, camera capture or diagnostic reporting.
+TypeScript/CSS built by Vite, served by Cloudflare Workers Static Assets. The same-origin Worker
+provides custom invitation-only authentication and account-scoped Cloudflare D1 preferences. No UI
+framework, external speech API, camera capture or diagnostic reporting.
 
 ```mermaid
 flowchart LR
@@ -15,16 +16,18 @@ flowchart LR
   Touch["Touch or keyboard"] --> Click
   Click --> Board["Board and catalogue"]
   Board --> Speech["Local pt-PT speech"]
-  Caregiver["Caregiver writing"] --> Storage["Browser phrase storage"]
+  Caregiver["Caregiver writing and ordering"] --> API["Authenticated Worker API"]
+  API --> Storage["Per-account D1 board and revision"]
   Storage --> Board
 ```
 
-| Module          | Responsibility                                                            |
-| --------------- | ------------------------------------------------------------------------- |
-| `src/main.ts`   | Board, catalogue, replacement, caregiver form and standard click handling |
-| `src/store.ts`  | Phrase validation, immutable updates and browser storage                  |
-| `src/speech.ts` | Prefer exact pt-PT system voice, prevent queued repeats, report failures  |
-| `src/worker.ts` | Serve static assets unchanged                                             |
+| Module                  | Responsibility                                                            |
+| ----------------------- | ------------------------------------------------------------------------- |
+| `src/main.ts`           | Board, catalogue, replacement, caregiver form and standard click handling |
+| `src/store.ts`          | Phrase validation, defaults and immutable ordering/slot updates           |
+| `src/account-client.ts` | Session bootstrap, login/setup/logout and revision-checked board saves    |
+| `src/speech.ts`         | Prefer exact pt-PT system voice, prevent queued repeats, report failures  |
+| `src/worker.ts`         | Public assets, authenticated API and private app routing                  |
 
 ## Safety and privacy invariants
 
@@ -41,15 +44,21 @@ flowchart LR
 - Tablet layouts use the dynamic viewport height and shrinkable grid rows across all four screens.
   Phrase typography follows the available grid height; the caregiver textarea cannot be manually
   resized past its allocated space. No overflow hiding is used to conceal clipped content.
-- Starting slots are yes, no, bathroom and pain. Recognized old default bottom slots are upgraded on
-  load (including cross-tab changes), preserving customized slots and all catalogue phrases. Save
-  the upgrade before displaying it; storage failures preserve saved data and report an error.
-- Template IDs stay stable when the catalogue is reordered. Saved catalogues adopt the same 26
-  templates, with custom/edited text retained afterwards. Retired unchanged templates are removed;
-  affected speaking slots use that position's starting phrase, never an invalid reference.
+- New accounts start with yes, no, bathroom and pain and the prescribed 26-template catalogue.
+  Browser-local boards are not imported. Legacy local migration helpers remain tested but are not
+  applied to cloud boards; caregiver ordering and assignments survive login unchanged.
+- Template IDs stay stable when the catalogue is reordered. The caregiver can move catalogue entries
+  independently of the four speaking positions, and select the insertion position of a new phrase.
+  Account data is validated without forcing template order on subsequent loads.
 - Writing is labelled for caregivers. This is a workflow boundary, not authentication or a
   system-input lock: the website cannot disable Apple's Eye Tracking in the form.
-- Persist phrases successfully before changing the in-memory board. Report/preserve corrupt storage.
+- Persist phrases successfully before changing the in-memory board. Saves carry a revision and CSRF
+  token. Failures/conflicts leave the displayed board unchanged and show recovery guidance; there is
+  no offline/local fallback or silent last-writer-wins synchronization.
+- The public home page contains the eye/speech logo and login form. Successful session bootstrap,
+  login or one-use setup opens the existing unbranded board. Logout invalidates the server session,
+  clears the in-memory board and returns home. Invitation/reset tokens use a URL fragment removed
+  from history before submission, not a query sent to the asset server.
 - No app camera permission, face/eye measurements, model downloads or calibration reports.
 - Apple owns calibration, pointer and dwell. The app does not receive gaze coordinates, assess
   tracking quality, enforce an additional dwell interval or implement a gaze repeat lock.
@@ -64,10 +73,11 @@ reported; neither accent nor continuing audio authorization is guaranteed.
 ## Deployment boundaries
 
 - GitHub Actions owns deployment; no Workers Builds or Cloudflare Pipelines.
-- TEST and PROD are separate Workers/origins, with independent browser phrase storage.
+- TEST and PROD are separate Workers/origins, with separate D1 account/session/preferences tables.
 - Optional TEST Access: browser **Allow** policy and separate automation **Service Auth** policy.
-  Smoke-test service secrets appear only in TEST smoke checks, never in browser assets. PROD stays
-  public. The old custom tracking header has no role; Access service headers remain authentication.
+  Smoke-test service secrets appear only in TEST smoke checks, never in browser assets. PROD's
+  login/assets stay public; account APIs and boards require the app session. Access service headers
+  do not establish caregiver identity. The old custom tracking header has no role.
 - No report routes, private R2 bindings, report secrets or scheduled cleanup.
 - PROD deploys the exact tested artifact, not a rebuilt site. Smoke checks prove asset identity, not
   physical-device acceptance. Deployment and release updates are not an atomic transaction.

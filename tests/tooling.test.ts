@@ -116,6 +116,25 @@ describe('mandatory lint and hook configuration', () => {
     expect(test).not.toContain('needs:');
   });
 
+  it('applies isolated database migrations before each deployment', () => {
+    for (const [file, environment, label] of [
+      ['deploy-to-test.yml', 'test', 'TEST'],
+      ['deploy-to-prod.yml', 'production', 'PROD'],
+    ]) {
+      const workflow = readFileSync(
+        new URL(`../.github/workflows/${file}`, import.meta.url),
+        'utf8',
+      );
+      const command = `npx wrangler d1 migrations apply DB --remote --env ${environment}`;
+
+      expect(workflow).toContain(command);
+
+      expect(workflow.indexOf(command)).toBeLessThan(
+        workflow.indexOf(`- name: Deploy to ${label}`),
+      );
+    }
+  });
+
   it('enforces types, sorting, quote style and statement spacing', async () => {
     const eslint = new ESLint({ cwd: root });
     const results = await eslint.lintText(
