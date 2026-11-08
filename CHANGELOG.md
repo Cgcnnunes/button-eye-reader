@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2
+
+- Enable eye/iris markers and per-target validation diagnostics in TEST and temporarily in PROD
+  without a request header.
+
 ## 0.3.1
 
 - Add opt-in production eye/iris markers and per-target validation diagnostics, enabled only by

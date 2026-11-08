@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EyeMarkers, TrackingFrame } from '../src/gaze';
@@ -5,6 +6,7 @@ import { defaultBoard, parseBoard, STORAGE_KEY } from '../src/store';
 
 const mocks = vi.hoisted(() => ({
   changed: vi.fn<(busy: boolean) => void>(),
+  debug: vi.fn<(enabled: boolean) => void>(),
   error: vi.fn<(error: Error) => void>(),
   frame: vi.fn<(frame: TrackingFrame) => void>(),
   listVideoInputs: vi.fn<() => Promise<MediaDeviceInfo[]>>(),
@@ -19,8 +21,14 @@ vi.mock(import('../src/gaze'), async (importOriginal) => {
   const actual = await importOriginal();
 
   class MockCameraTracker extends actual.CameraTracker {
-    constructor(frame: (frame: TrackingFrame) => void, error: (error: Error) => void) {
-      super(frame, error);
+    constructor(
+      frame: (frame: TrackingFrame) => void,
+      error: (error: Error) => void,
+      debugEyeMarkers = false,
+    ) {
+      super(frame, error, debugEyeMarkers);
+
+      mocks.debug(debugEyeMarkers);
 
       mocks.frame.mockImplementation(frame);
 
@@ -228,7 +236,36 @@ describe('phrase board and gaze UI regression', () => {
 
     vi.unstubAllGlobals();
 
+    vi.unstubAllEnvs();
+
+    delete document.documentElement.dataset.eyeDebug;
+
     vi.useRealTimers();
+  });
+
+  it('enables diagnostics in the shipped HTML without a production request header', async () => {
+    const html = readFileSync('index.html', 'utf8');
+    const page = new DOMParser().parseFromString(html, 'text/html');
+
+    expect(page.documentElement.dataset.eyeDebug).toBe('true');
+
+    document.documentElement.dataset.eyeDebug = page.documentElement.dataset.eyeDebug;
+
+    vi.stubEnv('DEV', false);
+
+    await load();
+
+    expect(document.getElementById('eye-debug-overlay')).not.toBeNull();
+
+    expect(mocks.debug).toHaveBeenCalledWith(true);
+
+    await start();
+
+    calibrate(true);
+
+    expect(text('notice')).toContain('não foi suficientemente precisa');
+
+    expect(text('notice')).toContain('Diagnóstico local');
   });
 
   it('keeps exactly four speaking targets and a caregiver-only writing control', async () => {

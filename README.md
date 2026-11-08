@@ -36,6 +36,8 @@ prototype** using the front camera.
   eye-follow circles and a caregiver button to save the current apparent face size as the seating
   distance reference. In use, gaze pauses when the face or eyes leave the supported area. This is
   image-based guidance, not a physical distance or head-pose measurement.
+- Eye and iris markers and validation-failure diagnostics are enabled locally and in TEST, and
+  temporarily in PROD, without a special request header. Images remain on the device.
 - Camera shutdown on leaving the page, resizing/reorienting, scrolling or opening text entry.
   Recalibration is required afterwards.
 

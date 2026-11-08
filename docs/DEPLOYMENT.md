@@ -69,9 +69,10 @@ URL.
   uses a stable address rather than a version-specific Preview URL.
 - Confirm that `assets.directory` matches the build output (`./dist` in this project).
 - `wrangler.jsonc` routes `/` and `/index.html` through `src/worker.ts` before serving the `ASSETS`
-  binding. The production environment is the only one that honors `x-test-production: true`, adding
-  an eye-diagnostic flag to the HTML response and disabling its caching. This header is not
-  authentication; do not use it to protect private content.
+  binding unchanged. The shipped HTML enables eye diagnostics without a request header in TEST and,
+  temporarily, in PROD. These diagnostics are not authentication and do not protect private content.
+  Any future PROD-only disablement must keep diagnostics enabled in local and TEST environments and
+  preserve promotion of the exact tested artifact.
 
 For **another app**, also replace Worker names in `scripts/deployment-policy.ts` and its tests, not
 just the Wrangler configuration. Do not copy tokens, account identifiers or this app's URLs. Future

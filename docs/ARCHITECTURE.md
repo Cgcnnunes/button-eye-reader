@@ -9,10 +9,10 @@ an emergency communication system.
 
 The app is static TypeScript and CSS, bundled by Vite. There is no UI framework, application
 database or external speech API. Node.js is build/tooling only. A small Cloudflare Worker serves
-Workers Static Assets over HTTPS and adds an eye-debug flag only to production HTML requests with
-`x-test-production: true`; that response is not cached. GitHub Actions deploys merges to a separate
-TEST Worker; PROD is a manual tag-only promotion of the tested artifact. Do not connect Workers
-Builds; Cloudflare Pipelines (data ingestion) is not used.
+Workers Static Assets over HTTPS. The shipped HTML enables eye diagnostics in all environments,
+including PROD temporarily; local Vite development also enables them independently. GitHub Actions
+deploys merges to a separate TEST Worker; PROD is a manual tag-only promotion of the tested
+artifact. Do not connect Workers Builds; Cloudflare Pipelines (data ingestion) is not used.
 
 ## Runtime flow
 
