@@ -274,7 +274,19 @@ npx wrangler d1 export DB --env test --remote --output .wrangler\backups\test-be
 Repeat deliberately with `--env production` and a separate `production-before-access.sql`. Protect
 the backups: they contain legacy password hashes and private phrases. `.wrangler` is ignored; do not
 commit, upload to CI artifacts or share these files. Confirm export success and a secure recovery
-copy before proceeding. Use administrator credentials with **Account > D1 > Edit**.
+copy before proceeding. Use administrator credentials with **Account > D1 > Edit**. Remote export
+may temporarily make D1 unavailable; perform it at an agreed quiet time. Wrangler also prints a
+temporary signed download URL granting access to the export. Treat that URL as a secret: do not
+paste complete export output into chat or logs. Report only export success/failure. Use a fresh
+timestamped output filename when an earlier backup must be retained.
+
+If a remote D1 command returns **7403** (account invalid or unauthorized), stop before migration.
+Run `npx wrangler whoami` privately to inspect the active authentication method and account. For API
+token authentication, confirm **Account > D1 > Edit** and the intended account resource scope. An
+Access service token is not a D1 administration credential. For OAuth authentication, confirm the
+signed-in account and D1 access. A configured API token may take precedence over Wrangler login;
+check local credential configuration privately without printing secrets. Do not delete databases or
+alter migration history to resolve an authorization error.
 
 Inspect the migration ledger and schema before applying. For an existing database, migration 0001
 must already be recorded and its schema must match the original migration. A fresh database applies
