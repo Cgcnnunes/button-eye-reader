@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.2
+
+- Fix the PROD deployment `validate` job failing with `ERR_MODULE_NOT_FOUND` for `jsonc-parser` by
+  installing dependencies with `npm ci --ignore-scripts` before running `scripts/deployment.ts`.
+
 ## 0.6.1
 
 - Refresh the README and operational guides to describe the current implementation and storage
