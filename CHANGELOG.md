@@ -2,6 +2,8 @@
 
 ## 0.6.0
 
+- Configure distinct TEST/PROD Access audiences and document the verified Worker protection,
+  email-only login, service-token reuse, application saves and private D1 backup workflow.
 - Replace custom username/password authentication with signed Cloudflare Access human identities,
   authorized-email login and managed sessions for both TEST and PROD.
 - Remove password hashing, app cookies, invitation/reset CLI and obsolete authentication APIs; keep

@@ -11,13 +11,14 @@ squash merges; PROD promotes the exact tested artifact and tag, without rebuildi
 - Confirm the Cloudflare account, existing Workers and existing D1 databases before changing them.
 - Set up GitHub branch/tag protection and deployment environments as documented in RELEASES.
 - Complete Access configuration **before merging or applying migration 0002**. The committed
-  configuration contains explicit placeholders, not working Access application IDs.
+  TEST/PROD configuration contains the linked applications' team domain and distinct audience tags.
+  Verify these against the dashboard before deploying; top-level local vars remain placeholders.
 - Deployment preflight checks the selected environment's team-domain/audience syntax **before**
   applying D1 migrations. This stops placeholders, not a syntactically valid but incorrect
   audience/team or missing edge policy. The operator must verify actual Access settings first.
 
-After replacing the selected environment's placeholders, run the matching preflight before
-merge/migration:
+After confirming or updating the selected environment's configuration, run the matching preflight
+before merge/migration:
 
 ```powershell
 node scripts\deployment.ts access test
@@ -90,6 +91,26 @@ For **each** Worker:
    not add **Bypass**, **Everyone**, or service tokens to the human Allow rule.
 5. Save and reload to confirm settings persisted; repeat independently for the other Worker.
 
+For an unprotected Worker, **Protect this Worker behind Access** opens **Manage Worker access**. The
+dialog defaults to **Previews only**: explicitly choose **All traffic**. Use **Authentication
+policy > Add policy** to configure a restricted human Allow policy before **Apply Access** becomes
+available. Create a separate PROD policy rather than attaching TEST's reusable policy when
+environment membership must remain independent. Applying protection immediately changes live access;
+coordinate with users even though it does not deploy code or migrate D1. If **Add policy** only
+lists pre-configured or existing policies, cancel the unsaved dialog, create the restricted policy
+first under **Zero Trust > Access controls > Policies**, then return to the Worker, select **All
+traffic**, and attach the new policy. Do not substitute **Cloudflare account** or **Email domain**
+for an explicit caregiver email list.
+
+If the Access tab already shows **Worker Access > All traffic** and **Require login on every URL:
+production and previews**, keep that protection. Use **Manage Access app** to review its existing
+human Allow and Service Auth policies instead of creating a duplicate application.
+
+The Worker's **Access > Application values** panel also exposes the **AUD tag** and **JWKS** URL.
+Copy that application's AUD tag for its environment. The hostname in the JWKS URL is the
+`ACCESS_TEAM_DOMAIN`; omit `https://` and `/cdn-cgi/access/certs`. These values identify the linked
+application without needing to search another settings screen.
+
 Do not use **Protect all Workers** unless you deliberately intend to protect every unrelated Worker
 in that account. No Tunnel is needed for a hosted Worker.
 
@@ -104,6 +125,11 @@ separate public hostname or a different edge policy and is not part of this arch
    **One-time PIN**. New organizations do not necessarily enable OTP automatically.
 2. Edit the chosen TEST or PROD application, enable One-time PIN as its login method, and attach a
    human **Allow** policy with **Include > Emails**, listing only approved caregiver addresses.
+   Under **Application details > Login methods**, turn off **Accept all available identity
+   providers** and select only **One-time PIN** for an email-code-only deployment. If the selection
+   shows **Select all**, remove that selection and choose One-time PIN explicitly. Leave other
+   providers unselected, and leave **Authenticate with Cloudflare One Client** off. Do not delete
+   organization-wide providers: other applications may need them.
 3. Save, reload and confirm the login method and policy. Add the user separately to the other
    environment if required; allowing TEST does not permit PROD.
 4. Open the HTTPS site in iPad Safari, enter the approved email, select **Send login code**, then
@@ -111,6 +137,18 @@ separate public hostname or a different edge policy and is not part of this arch
    deliberately reports that a code was sent even when an address is not allowed.
 5. Enter the board. The first valid human session creates default preferences keyed by the verified
    Access `sub`. The displayed `username` is the verified email, not a separate account username.
+
+An email OTP login requires a real mailbox controlled by the caregiver, not a legacy custom username
+or an example address. There is no second username/password login. Updating the Allow list does not
+transfer a legacy board; use the verified-owner archive recovery procedure below.
+
+In the current policy editor, use **Policy rules > Include > Emails** to manage approved addresses,
+keep **Policy details > Action > Allow**, and keep **Policy session duration > Same as application
+session duration** when using the application's timeout. Save with **Save policy**, then reopen to
+verify. Review which applications use a reusable policy before editing it: changes affect every
+attached application. For independent TEST/PROD membership, attach separate policies. Remove example
+or obsolete addresses only after confirming they are not intended users; never document real
+caregiver addresses or login codes.
 
 Use the
 [OTP guide](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/one-time-pin/)
@@ -127,8 +165,12 @@ currently supports a **global duration up to one month** and an application dura
 month:
 
 - **Zero Trust > Access controls > Access settings > Set your global session duration**: choose
-  **one month (approximately 30 days)** to avoid unnecessary repeated OTP challenges.
-- On each **Applications > Edit > Session Duration**, choose **24 hours**.
+  **one month (approximately 30 days)** to avoid unnecessary repeated OTP challenges. This setting
+  is organization-wide; review its effect on unrelated Access applications before changing it. Save,
+  reload, and confirm the displayed value is **1 month**.
+- On each **Applications > Edit > Session Duration**, choose **24 hours**. In the current editor,
+  this control appears under **Application details > Basic information**. Keep an existing 24-hour
+  value rather than changing it unnecessarily.
 - Inspect every human policy's **Session Duration**. Use **Same as application session timeout** or
   an explicit **24 hours**; a policy override takes precedence over the application duration.
 
@@ -171,11 +213,30 @@ caregiver identity. See
 ### Configure automation independently in BOTH environments
 
 1. In **Zero Trust > Access controls > Service credentials > Service Tokens**, create a distinct
-   smoke-test token for each environment, with a deliberate expiration.
+   smoke-test token for each environment, with a deliberate expiration. If TEST already has a valid
+   token but PROD has none, keep TEST's token and create only PROD's. Select **Create Service
+   Token**, use a descriptive environment-specific name, choose its duration, and select **Generate
+   token**. Copy the Client ID and once-displayed Client Secret privately into the matching GitHub
+   environment. Do not share or capture the generated-credentials screen.
 2. Copy its Client ID/Client Secret directly into that GitHub environment's secrets below.
 3. Attach an application policy with action **Service Auth**, **Include > Service Token** and only
-   that environment's token. Keep the human Allow policy separate.
+   that environment's token. Keep the human Allow policy separate. In **Application details >
+   Policies**, use **Create new policy** if needed. Saving the policy does not necessarily save its
+   application attachment: also select **Save** on the application, reopen it, and confirm both
+   policies remain. If navigation warns of unsaved changes, stay on the page and save the
+   application before leaving.
 4. Save and reload both applications, verify token expiration, and plan rotation.
+
+Reuse an existing environment-specific service token and policy when the policy has action **Service
+Auth**, includes only the intended token, and the token is unexpired with matching GitHub
+environment secrets. The token name need not contain "smoke"; an existing deployment-named Access
+token can serve these requests. Do not confuse it with the separate Cloudflare API deployment token.
+Create a replacement only when needed, update the environment secrets, verify smoke checks, then
+revoke the superseded token after confirming no other consumer needs it. Existing GitHub secret
+names alone do not prove the credentials belong to an active, PROD-specific Access token. If only
+TEST's token exists in Zero Trust, create PROD's token and update both production Access secrets
+together with its matching values. Keep the deployment API token unchanged, and never reuse TEST's
+Access token for PROD.
 
 Workflows send `CF-Access-Client-Id` and `CF-Access-Client-Secret` only for that environment's smoke
 requests. Both values are required together on TEST **and** PROD. Never inject them into Safari,
@@ -213,7 +274,19 @@ npx wrangler d1 export DB --env test --remote --output .wrangler\backups\test-be
 Repeat deliberately with `--env production` and a separate `production-before-access.sql`. Protect
 the backups: they contain legacy password hashes and private phrases. `.wrangler` is ignored; do not
 commit, upload to CI artifacts or share these files. Confirm export success and a secure recovery
-copy before proceeding. Use administrator credentials with **Account > D1 > Edit**.
+copy before proceeding. Use administrator credentials with **Account > D1 > Edit**. Remote export
+may temporarily make D1 unavailable; perform it at an agreed quiet time. Wrangler also prints a
+temporary signed download URL granting access to the export. Treat that URL as a secret: do not
+paste complete export output into chat or logs. Report only export success/failure. Use a fresh
+timestamped output filename when an earlier backup must be retained.
+
+If a remote D1 command returns **7403** (account invalid or unauthorized), stop before migration.
+Run `npx wrangler whoami` privately to inspect the active authentication method and account. For API
+token authentication, confirm **Account > D1 > Edit** and the intended account resource scope. An
+Access service token is not a D1 administration credential. For OAuth authentication, confirm the
+signed-in account and D1 access. A configured API token may take precedence over Wrangler login;
+check local credential configuration privately without printing secrets. Do not delete databases or
+alter migration history to resolve an authorization error.
 
 Inspect the migration ledger and schema before applying. For an existing database, migration 0001
 must already be recorded and its schema must match the original migration. A fresh database applies
