@@ -30,8 +30,8 @@
     "production": {
       "name": "button-eye-reader-prod",
       "vars": {
-        "ACCESS_TEAM_DOMAIN": "REPLACE_WITH_TEAM.cloudflareaccess.com",
-        "ACCESS_AUD": "REPLACE_WITH_PRODUCTION_ACCESS_AUD",
+        "ACCESS_TEAM_DOMAIN": "rent-hub-pages.cloudflareaccess.com",
+        "ACCESS_AUD": "67e88f139f35c1f9df4adff34f4cd817e6d91b32b915a07123c4fff4a812ba35",
       },
       "d1_databases": [
         {
@@ -51,8 +51,8 @@
     "test": {
       "name": "button-eye-reader-test",
       "vars": {
-        "ACCESS_TEAM_DOMAIN": "REPLACE_WITH_TEAM.cloudflareaccess.com",
-        "ACCESS_AUD": "REPLACE_WITH_TEST_ACCESS_AUD",
+        "ACCESS_TEAM_DOMAIN": "rent-hub-pages.cloudflareaccess.com",
+        "ACCESS_AUD": "6751d8360526413107df37b27725eab3f784272ebdd82e88439c86a2cbb79702",
       },
       "d1_databases": [
         {
