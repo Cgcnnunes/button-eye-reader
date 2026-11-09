@@ -165,7 +165,9 @@ currently supports a **global duration up to one month** and an application dura
 month:
 
 - **Zero Trust > Access controls > Access settings > Set your global session duration**: choose
-  **one month (approximately 30 days)** to avoid unnecessary repeated OTP challenges.
+  **one month (approximately 30 days)** to avoid unnecessary repeated OTP challenges. This setting
+  is organization-wide; review its effect on unrelated Access applications before changing it. Save,
+  reload, and confirm the displayed value is **1 month**.
 - On each **Applications > Edit > Session Duration**, choose **24 hours**. In the current editor,
   this control appears under **Application details > Basic information**. Keep an existing 24-hour
   value rather than changing it unnecessarily.
@@ -211,10 +213,18 @@ caregiver identity. See
 ### Configure automation independently in BOTH environments
 
 1. In **Zero Trust > Access controls > Service credentials > Service Tokens**, create a distinct
-   smoke-test token for each environment, with a deliberate expiration.
+   smoke-test token for each environment, with a deliberate expiration. If TEST already has a valid
+   token but PROD has none, keep TEST's token and create only PROD's. Select **Create Service
+   Token**, use a descriptive environment-specific name, choose its duration, and select **Generate
+   token**. Copy the Client ID and once-displayed Client Secret privately into the matching GitHub
+   environment. Do not share or capture the generated-credentials screen.
 2. Copy its Client ID/Client Secret directly into that GitHub environment's secrets below.
 3. Attach an application policy with action **Service Auth**, **Include > Service Token** and only
-   that environment's token. Keep the human Allow policy separate.
+   that environment's token. Keep the human Allow policy separate. In **Application details >
+   Policies**, use **Create new policy** if needed. Saving the policy does not necessarily save its
+   application attachment: also select **Save** on the application, reopen it, and confirm both
+   policies remain. If navigation warns of unsaved changes, stay on the page and save the
+   application before leaving.
 4. Save and reload both applications, verify token expiration, and plan rotation.
 
 Reuse an existing environment-specific service token and policy when the policy has action **Service
@@ -222,7 +232,11 @@ Auth**, includes only the intended token, and the token is unexpired with matchi
 environment secrets. The token name need not contain "smoke"; an existing deployment-named Access
 token can serve these requests. Do not confuse it with the separate Cloudflare API deployment token.
 Create a replacement only when needed, update the environment secrets, verify smoke checks, then
-revoke the superseded token after confirming no other consumer needs it.
+revoke the superseded token after confirming no other consumer needs it. Existing GitHub secret
+names alone do not prove the credentials belong to an active, PROD-specific Access token. If only
+TEST's token exists in Zero Trust, create PROD's token and update both production Access secrets
+together with its matching values. Keep the deployment API token unchanged, and never reuse TEST's
+Access token for PROD.
 
 Workflows send `CF-Access-Client-Id` and `CF-Access-Client-Secret` only for that environment's smoke
 requests. Both values are required together on TEST **and** PROD. Never inject them into Safari,
