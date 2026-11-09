@@ -372,6 +372,10 @@ describe('standard accessible phrase board', () => {
 
     expect(text('spoken')).toContain('Botão atualizado');
 
+    expect(button('speak:0').classList.contains('updated-target')).toBe(true);
+
+    expect(document.querySelectorAll('.updated-target')).toHaveLength(1);
+
     button('catalogue').click();
 
     while (!button('next').disabled) button('next').click();
@@ -399,9 +403,13 @@ describe('standard accessible phrase board', () => {
     expect(document.querySelector('footer .release-label')?.textContent).toContain('v0.1.0-test');
 
     expect(document.body.textContent).not.toContain('Uma frase de cada vez');
+
+    expect(document.querySelector('footer')?.textContent).not.toContain(
+      'Frases e posições guardadas na sua conta.',
+    );
   });
 
-  it('shows only centered phrase text on speaking and catalogue buttons', async () => {
+  it('shows only centered phrase text and highlights all four replacement targets', async () => {
     await load();
 
     for (const target of document.querySelectorAll('.phrase-button')) {
@@ -415,6 +423,68 @@ describe('standard accessible phrase board', () => {
     button('catalogue').click();
 
     expect(document.querySelector('.phrase-button small')).toBeNull();
+
+    button('choose:template-1').click();
+
+    expect(text('screen-hint')).toContain('quatro botões destacados');
+
+    expect(document.querySelectorAll('.replacement-target')).toHaveLength(4);
+
+    for (let index = 0; index < 4; index++) {
+      const target = button(`replace:${index}`);
+
+      expect(target.children).toHaveLength(1);
+
+      expect(target.textContent).toBe(target.querySelector('.button-text')?.textContent);
+
+      expect(target.getAttribute('aria-label')).toContain(`Botão ${index + 1}:`);
+
+      expect(target.getAttribute('aria-label')).toContain('Substituir');
+    }
+
+    expect(document.querySelector('main')?.textContent).not.toContain('Substituir');
+
+    button('board').click();
+
+    expect(document.querySelector('.replacement-target, .updated-target')).toBeNull();
+  });
+
+  it('provides click feedback for standard activation without moving or delaying targets', async () => {
+    await load();
+
+    const target = button('speak:0');
+
+    target.querySelector('.button-text')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(target.classList.contains('click-feedback')).toBe(true);
+
+    expect(mocks.speak).toHaveBeenCalledWith('Sim');
+
+    target.dispatchEvent(new Event('animationend', { bubbles: true }));
+
+    expect(target.classList.contains('click-feedback')).toBe(false);
+
+    target.click();
+
+    expect(target.classList.contains('click-feedback')).toBe(true);
+
+    expect(mocks.speak).toHaveBeenCalledTimes(2);
+
+    button('caregiver-toggle').click();
+
+    expect(button('caregiver-toggle').classList.contains('click-feedback')).toBe(true);
+
+    button('catalogue').click();
+
+    const previous = button('previous');
+
+    previous.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(previous.classList.contains('click-feedback')).toBe(false);
+
+    document.getElementById('screen-title')?.click();
+
+    expect(document.querySelector('#screen-title.click-feedback')).toBeNull();
   });
 
   it('preserves cloud ordering without reapplying the template migration', async () => {
@@ -525,6 +595,10 @@ describe('standard accessible phrase board', () => {
     });
 
     expect(text('screen-title')).toBe('Qual botão quer mudar?');
+
+    expect(document.querySelectorAll('.replacement-target')).toHaveLength(4);
+
+    expect(document.querySelector('.updated-target')).toBeNull();
 
     button('board').click();
 

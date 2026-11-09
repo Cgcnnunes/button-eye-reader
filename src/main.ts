@@ -61,7 +61,7 @@ function mountBoard(): void {
           <button id="caregiver-toggle" type="button" class="helper" aria-expanded="false" aria-controls="caregiver-panel">Acompanhante · Opções</button>
           <span id="caregiver-hint">Peça a quem acompanha para aceder às configurações.</span>
         </div>
-        <div class="privacy"><span>Frases e posições guardadas na sua conta.</span><span class="release-label"><small class="experimental">EXPERIMENTAL</small><span>v${__APP_VERSION__}</span></span></div>
+        <div class="privacy"><span class="release-label"><small class="experimental">EXPERIMENTAL</small><span>v${__APP_VERSION__}</span></span></div>
       </div>
     </footer>
   </div>`;
@@ -155,11 +155,7 @@ function makeButton(
   }
 
   if (!options.secondary && screen === 'replace') {
-    const hint = document.createElement('small');
-
-    hint.textContent = 'Substituir este botão';
-
-    button.append(hint);
+    button.classList.add('replacement-target');
   }
 
   button.addEventListener('click', () => {
@@ -169,7 +165,7 @@ function makeButton(
   return button;
 }
 
-function render(): void {
+function render(updatedSlot?: number): void {
   const content = element('content');
 
   content.replaceChildren();
@@ -207,7 +203,7 @@ function render(): void {
       : screen === 'catalogue'
         ? `Catálogo · página ${page + 1} de ${Math.ceil(board.phrases.length / 4)}`
         : screen === 'replace'
-          ? `Vai colocar: «${selected?.text ?? ''}»`
+          ? `Escolha um dos quatro botões destacados para colocar: «${selected?.text ?? ''}»`
           : 'Área de escrita para quem acompanha.';
 
   if (screen === 'catalogue') {
@@ -228,14 +224,22 @@ function render(): void {
 
   if (screen === 'board' || screen === 'replace') {
     board.slots.forEach((id, index) => {
-      grid.append(
-        makeButton(phraseFor(id).text, screen === 'board' ? `speak:${index}` : `replace:${index}`, {
+      const button = makeButton(
+        phraseFor(id).text,
+        screen === 'board' ? `speak:${index}` : `replace:${index}`,
+        {
           label:
             screen === 'replace'
               ? `Botão ${index + 1}: ${phraseFor(id).text}. Substituir.`
               : undefined,
-        }),
+        },
       );
+
+      if (screen === 'board' && index === updatedSlot) {
+        button.classList.add('updated-target', 'click-feedback');
+      }
+
+      grid.append(button);
     });
 
     if (screen === 'board') {
@@ -337,6 +341,10 @@ async function activate(button: HTMLButtonElement): Promise<void> {
       screen = 'board';
 
       selected = null;
+
+      render(Number(action.slice(8)));
+
+      return;
     } else if (action === 'previous') page = Math.max(0, page - 1);
     else if (action === 'next') page = Math.min(Math.ceil(board.phrases.length / 4) - 1, page + 1);
     else if (action === 'catalogue') screen = 'catalogue';
@@ -496,6 +504,24 @@ function wireControls(): void {
     showHome('A terminar a sessão no Cloudflare Access…');
   });
 }
+
+app.addEventListener(
+  'click',
+  (event) => {
+    if (!(event.target instanceof Element) || saving) return;
+
+    const control = event.target.closest('button, a.helper, a.control-button');
+
+    if (!(control instanceof HTMLElement) || control.matches(':disabled')) return;
+
+    control.classList.add('click-feedback');
+  },
+  { capture: true },
+);
+
+app.addEventListener('animationend', (event) => {
+  if (event.target instanceof HTMLElement) event.target.classList.remove('click-feedback');
+});
 
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && account && !element('caregiver-panel').hidden) {

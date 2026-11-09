@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.1
+
+- Highlight all four replacement choices with a distinct tint and dashed borders; keep phrase text
+  centered without replacement subtitles and mark the updated position only after a successful save.
+- Add brief color feedback for standard button activation without moving targets or delaying
+  actions; respect reduced-motion preferences and preserve keyboard focus and speech busy guards.
+- Remove the redundant account-storage message from the board footer.
+
 ## 0.6.0
 
 - Configure distinct TEST/PROD Access audiences and document the verified Worker protection,
