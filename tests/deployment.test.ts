@@ -1,6 +1,14 @@
 import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { api, download, previousStable, promote, smoke, validate } from '../scripts/deployment.ts';
+import {
+  accessConfiguration,
+  api,
+  download,
+  previousStable,
+  promote,
+  smoke,
+  validate,
+} from '../scripts/deployment.ts';
 
 const mocks = vi.hoisted(() => ({
   append: vi.fn(),
@@ -149,6 +157,69 @@ function configureSmoke(environment = 'test'): void {
 }
 
 describe('deployment API, artifact and promotion orchestration', () => {
+  it('checks real environment Access configuration before allowing migrations', () => {
+    const config = {
+      env: {
+        production: {
+          vars: {
+            ACCESS_AUD: 'b'.repeat(64),
+            ACCESS_TEAM_DOMAIN: 'reader-team.cloudflareaccess.com',
+          },
+        },
+        test: {
+          vars: {
+            ACCESS_AUD: 'a'.repeat(64),
+            ACCESS_TEAM_DOMAIN: 'reader-team.cloudflareaccess.com',
+          },
+        },
+      },
+    };
+
+    mocks.read.mockReturnValue(JSON.stringify(config));
+
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    accessConfiguration('test');
+
+    accessConfiguration('production');
+
+    expect(log).toHaveBeenCalledTimes(2);
+
+    expect(() => {
+      accessConfiguration('local');
+    }).toThrow('Choose test or production');
+
+    config.env.test.vars.ACCESS_AUD = 'REPLACE_WITH_TEST_ACCESS_AUD';
+
+    mocks.read.mockReturnValue(JSON.stringify(config));
+
+    expect(() => {
+      accessConfiguration('test');
+    }).toThrow('before database migration');
+
+    config.env.test.vars.ACCESS_AUD = 'b'.repeat(64);
+
+    mocks.read.mockReturnValue(JSON.stringify(config));
+
+    expect(() => {
+      accessConfiguration('test');
+    }).toThrow('distinct');
+
+    config.env.test.vars.ACCESS_TEAM_DOMAIN = 'https://evil.example';
+
+    mocks.read.mockReturnValue(JSON.stringify(config));
+
+    expect(() => {
+      accessConfiguration('test');
+    }).toThrow('before database migration');
+
+    mocks.read.mockReturnValue('{"env":{}, broken}');
+
+    expect(() => {
+      accessConfiguration('test');
+    }).toThrow('invalid JSONC');
+  });
+
   beforeEach(() => {
     vi.resetAllMocks();
 
@@ -380,19 +451,19 @@ describe('deployment API, artifact and promotion orchestration', () => {
     await expect(smoke('test')).rejects.toThrow('does not match');
   });
 
-  it('allows TEST smoke checks without Access credentials when both are unset', async () => {
-    configureSmoke();
+  it('rejects smoke checks without Access credentials in either environment', async () => {
+    for (const environment of ['test', 'production']) {
+      configureSmoke(environment);
 
-    vi.stubEnv('CLOUDFLARE_ACCESS_CLIENT_ID', '');
+      vi.stubEnv('CLOUDFLARE_ACCESS_CLIENT_ID', '');
 
-    vi.stubEnv('CLOUDFLARE_ACCESS_CLIENT_SECRET', '');
+      vi.stubEnv('CLOUDFLARE_ACCESS_CLIENT_SECRET', '');
 
-    await expect(smoke('test')).resolves.toBeUndefined();
+      await expect(smoke(environment)).rejects.toThrow(
+        'Configure both Cloudflare Access service token secrets',
+      );
 
-    expect(fetch).toHaveBeenCalledTimes(4);
-
-    for (const [, options] of vi.mocked(fetch).mock.calls) {
-      expect(options?.headers).toBeUndefined();
+      expect(fetch).not.toHaveBeenCalled();
     }
   });
 
@@ -404,22 +475,29 @@ describe('deployment API, artifact and promotion orchestration', () => {
       vi.stubEnv(name, '');
 
       await expect(smoke('test')).rejects.toThrow(
-        'Configure both Cloudflare Access service token secrets or leave both unset.',
+        'Configure both Cloudflare Access service token secrets for this environment.',
       );
 
       expect(fetch).not.toHaveBeenCalled();
     },
   );
 
-  it('never sends Access credentials to PROD even when present in the environment', async () => {
+  it('uses the production environment service token for PROD smoke checks only', async () => {
     configureSmoke('production');
+
+    vi.stubEnv('CLOUDFLARE_ACCESS_CLIENT_ID', 'production-access-id');
+
+    vi.stubEnv('CLOUDFLARE_ACCESS_CLIENT_SECRET', 'production-access-secret');
 
     await smoke('production');
 
     expect(fetch).toHaveBeenCalledTimes(4);
 
     for (const [, options] of vi.mocked(fetch).mock.calls) {
-      expect(options?.headers).toBeUndefined();
+      expect(options?.headers).toEqual({
+        'CF-Access-Client-Id': 'production-access-id',
+        'CF-Access-Client-Secret': 'production-access-secret',
+      });
 
       expect(options?.redirect).toBe('manual');
     }
@@ -428,7 +506,9 @@ describe('deployment API, artifact and promotion orchestration', () => {
 
     vi.stubEnv('CLOUDFLARE_ACCESS_CLIENT_SECRET', '');
 
-    await expect(smoke('production')).resolves.toBeUndefined();
+    await expect(smoke('production')).rejects.toThrow(
+      'Configure both Cloudflare Access service token secrets',
+    );
   });
 
   it.each([302, 401, 403])(
@@ -499,12 +579,14 @@ describe('deployment API, artifact and promotion orchestration', () => {
     }
   });
 
-  it('reports that PROD must remain public when it redirects to login', async () => {
+  it('reports rejected PROD automation access instead of following login redirects', async () => {
     configureSmoke('production');
 
     vi.mocked(fetch).mockResolvedValue(new Response('', { status: 302 }));
 
-    await expect(smoke('production')).rejects.toThrow('PROD must be publicly accessible');
+    await expect(smoke('production')).rejects.toThrow(
+      'Check Cloudflare Access service token secrets',
+    );
 
     expect(fetch).toHaveBeenCalledTimes(1);
   });

@@ -60,6 +60,16 @@ not authentication silently. After smoke checks, the workflow saves the tested s
 creates an immutable annotated tag/prerelease with generated notes, TEST URL and PR/run/artifact
 provenance. No extra version commit or automatic PR merge is created. Existing tags never move.
 
+The Access replacement requires team/audience configuration and whole-host Access policies before
+merge. Both TEST and PROD smoke checks need separate environment-scoped Service Auth credentials.
+Each workflow runs `node scripts/deployment.ts access test` or `production` before migrations to
+reject placeholder/malformed team domains or audiences and shared TEST/PROD audiences. This checks
+configuration format, not the presence/correctness of Access dashboard policies. Back up D1 before
+the forward migration removing old custom-auth tables; the board-only recovery archive does not make
+old Worker password/session code compatible with the new schema. Plan a maintenance window for
+migration plus deployment. Do not rerun or roll back to a pre-Access Worker against the migrated
+database.
+
 TEST's URL is stable; later merges replace its content. Record the tested `release.json` tag/SHA and
 device results before that happens. Never approve an old tag using a different version now on TEST.
 

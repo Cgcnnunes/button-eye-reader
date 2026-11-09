@@ -7,8 +7,8 @@ system.
 ## Runtime
 
 TypeScript/CSS built by Vite, served by Cloudflare Workers Static Assets. The same-origin Worker
-provides custom invitation-only authentication and account-scoped Cloudflare D1 preferences. No UI
-framework, external speech API, camera capture or diagnostic reporting.
+verifies Cloudflare Access human identities and serves account-scoped Cloudflare D1 preferences. No
+UI framework, external speech API, camera capture or diagnostic reporting.
 
 ```mermaid
 flowchart LR
@@ -17,6 +17,7 @@ flowchart LR
   Click --> Board["Board and catalogue"]
   Board --> Speech["Local pt-PT speech"]
   Caregiver["Caregiver writing and ordering"] --> API["Authenticated Worker API"]
+  Access["Cloudflare Access email login and signed identity"] --> API
   API --> Storage["Per-account D1 board and revision"]
   Storage --> Board
 ```
@@ -25,7 +26,8 @@ flowchart LR
 | ----------------------- | ------------------------------------------------------------------------- |
 | `src/main.ts`           | Board, catalogue, replacement, caregiver form and standard click handling |
 | `src/store.ts`          | Phrase validation, defaults and immutable ordering/slot updates           |
-| `src/account-client.ts` | Session bootstrap, login/setup/logout and revision-checked board saves    |
+| `src/account-client.ts` | Access session bootstrap and revision-checked board saves                 |
+| `src/access.ts`         | Signed Access JWT verification and validated D1 preferences               |
 | `src/speech.ts`         | Prefer exact pt-PT system voice, prevent queued repeats, report failures  |
 | `src/worker.ts`         | Public assets, authenticated API and private app routing                  |
 
@@ -55,10 +57,21 @@ flowchart LR
 - Persist phrases successfully before changing the in-memory board. Saves carry a revision and CSRF
   token. Failures/conflicts leave the displayed board unchanged and show recovery guidance; there is
   no offline/local fallback or silent last-writer-wins synchronization.
-- The public home page contains the eye/speech logo and login form. Successful session bootstrap,
-  login or one-use setup opens the existing unbranded board. Logout invalidates the server session,
-  clears the in-memory board and returns home. Invitation/reset tokens use a URL fragment removed
-  from history before submission, not a query sent to the asset server.
+- Access protects each entire hostname before the Worker runs. Its login UI appears before the
+  branded application home; a valid human identity opens the existing unbranded board. There is no
+  app username/password form or custom cookie/session store. The application's entry/error screen
+  retains the logo and a link to `/app`. An expired Access session redirects at the edge; fetch
+  redirects/HTML are explicit errors rather than success-shaped preference responses.
+- Logout clears the displayed private board and stops speech, then navigates to Access's
+  `/cdn-cgi/access/logout`. Access owns session revocation and any remaining identity-provider
+  sessions; the application cannot guarantee an upstream provider also signs out.
+- JWT verification pins RS256, issuer and environment-specific audience and checks expiry/human
+  claims. Merely supplying an email/header does not establish identity. Service Auth identities may
+  retrieve build assets for smoke tests but can never retrieve or save a user's board.
+- One D1 database per environment remains necessary. The forward Access migration removes custom
+  authentication tables and password hashes while retaining only legacy board data in a recovery
+  archive. Old usernames are not automatically linked to Access email identities. Archive recovery
+  and eventual removal are explicit owner actions after backup, not app permission fallbacks.
 - No app camera permission, face/eye measurements, model downloads or calibration reports.
 - Apple owns calibration, pointer and dwell. The app does not receive gaze coordinates, assess
   tracking quality, enforce an additional dwell interval or implement a gaze repeat lock.
@@ -73,11 +86,12 @@ reported; neither accent nor continuing audio authorization is guaranteed.
 ## Deployment boundaries
 
 - GitHub Actions owns deployment; no Workers Builds or Cloudflare Pipelines.
-- TEST and PROD are separate Workers/origins, with separate D1 account/session/preferences tables.
-- Optional TEST Access: browser **Allow** policy and separate automation **Service Auth** policy.
-  Smoke-test service secrets appear only in TEST smoke checks, never in browser assets. PROD's
-  login/assets stay public; account APIs and boards require the app session. Access service headers
-  do not establish caregiver identity. The old custom tracking header has no role.
+- TEST and PROD are separate Workers/origins and D1 databases. Both require Access applications with
+  human **Allow** policies and separate automation **Service Auth** policies. Deployments must pin
+  the team domain and their distinct application audiences before merging.
+- Environment-specific Access service secrets appear only in that environment's smoke step, never in
+  browser assets/builds. Smoke tests validate build identity and API rejection of service
+  credentials, not a human login. The old custom tracking header has no role.
 - No report routes, private R2 bindings, report secrets or scheduled cleanup.
 - PROD deploys the exact tested artifact, not a rebuilt site. Smoke checks prove asset identity, not
   physical-device acceptance. Deployment and release updates are not an atomic transaction.

@@ -57,7 +57,22 @@ async function request(
       ...(csrf ? { 'x-csrf-token': csrf } : {}),
     },
     method,
+    redirect: 'manual',
   });
+
+  if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+    throw new Error(
+      'A sessão de acesso expirou. Use Entrar ou recarregue a página para iniciar sessão.',
+    );
+  }
+
+  if (path === '/api/session' && response.status === 401) return response;
+
+  if (!response.headers.get('content-type')?.includes('application/json')) {
+    throw new Error(
+      'O serviço de contas devolveu uma resposta inesperada. Recarregue a página para verificar o acesso.',
+    );
+  }
 
   if (!response.ok && !(path === '/api/session' && response.status === 401)) {
     const value: unknown = await response.json();
@@ -79,18 +94,6 @@ export async function getSession(): Promise<AccountSession | null> {
   const response = await request('/api/session');
 
   return response.status === 401 ? null : session(await response.json());
-}
-
-export async function login(username: string, password: string): Promise<AccountSession> {
-  return session(await (await request('/api/login', 'POST', { password, username })).json());
-}
-
-export async function setup(token: string, password: string): Promise<AccountSession> {
-  return session(await (await request('/api/setup', 'POST', { password, token })).json());
-}
-
-export async function logout(csrf: string): Promise<void> {
-  await request('/api/logout', 'POST', undefined, csrf);
 }
 
 export async function saveBoard(board: Board, revision: number, csrf: string): Promise<SavedBoard> {

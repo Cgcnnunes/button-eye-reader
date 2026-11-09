@@ -12,7 +12,6 @@ body {
   margin: 0;
 }
 button,
-input,
 select,
 textarea {
   font: inherit;
@@ -23,7 +22,6 @@ button {
   -webkit-tap-highlight-color: transparent;
 }
 button:focus-visible,
-input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
   outline: 5px solid #ad5100;
@@ -357,20 +355,17 @@ textarea {
   margin: 0;
   line-height: 1.4;
 }
-.login-shell form,
 .order-panel {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
-.login-shell,
-.login-shell form {
+.login-shell {
   gap: clamp(6px, 1.5dvh, 12px);
 }
 .login-shell .control-button {
   min-height: 48px;
 }
-input,
 select {
   width: 100%;
   min-width: 0;
@@ -381,6 +376,19 @@ select {
   color: #102b46;
   background: white;
   font-size: 18px;
+}
+.login-shell .control-button,
+.helper-buttons a {
+  text-decoration: none;
+}
+.login-shell .control-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+a:focus-visible {
+  outline: 5px solid #ad5100;
+  outline-offset: 5px;
 }
 .order-panel {
   flex: 1;

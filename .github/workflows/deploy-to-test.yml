@@ -47,7 +47,9 @@ jobs:
         run: node scripts/release.ts prepare
 
       - name: Apply TEST database migrations
-        run: npx wrangler d1 migrations apply DB --remote --env test
+        run: |
+          node scripts/deployment.ts access test
+          npx wrangler d1 migrations apply DB --remote --env test
 
       - name: Deploy to TEST
         run: npx wrangler deploy --env test

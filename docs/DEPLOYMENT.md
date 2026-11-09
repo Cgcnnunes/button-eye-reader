@@ -1,464 +1,381 @@
 # Deployment setup
 
-GitHub Actions publishes this app to two Cloudflare Workers. **Do not connect Workers Builds, Pages
-or deployment hooks.** Cloudflare Pipelines is unrelated and is not used.
-
-```mermaid
-flowchart LR
-  PR["Reviewed squash PR"] --> Main["main"]
-  Main --> Checks["Verification and release checks"]
-  Checks --> Test["Deploy TEST"]
-  Test --> Release["Smoke checks, artifact and prerelease"]
-  Release --> Human["Test exact tag on iPad"]
-  Human --> Dispatch["Manually dispatch tested tag"]
-  Dispatch --> Prod["Validate artifact and deploy PROD"]
-  Prod --> Stable["Smoke checks and stable release"]
-```
+GitHub Actions deploys two Cloudflare Workers. **Do not connect Workers Builds, Pages, Git build
+integrations, deployment hooks or Cloudflare Pipelines.** TEST is deployed from eligible reviewed
+squash merges; PROD promotes the exact tested artifact and tag, without rebuilding.
 
 ## 1. Check your starting point
 
-- `main` exists on GitHub and is the default branch.
-- Run `npm ci`, then `npm run verify` with the Node version in `.nvmrc`.
-- Select the Cloudflare account that will own both Workers.
-- Inspect existing Workers before deploying: a deployment replaces their content.
-- Set up repository protection using [RELEASES.md](RELEASES.md#repository-protection).
+- Read [CONTRIBUTING.md](CONTRIBUTING.md), [RELEASES.md](RELEASES.md) and [TESTING.md](TESTING.md).
+- Use the Node version in `.nvmrc`, run `npm ci` and `npm run verify`.
+- Confirm the Cloudflare account, existing Workers and existing D1 databases before changing them.
+- Set up GitHub branch/tag protection and deployment environments as documented in RELEASES.
+- Complete Access configuration **before merging or applying migration 0002**. The committed
+  configuration contains explicit placeholders, not working Access application IDs.
+- Deployment preflight checks the selected environment's team-domain/audience syntax **before**
+  applying D1 migrations. This stops placeholders, not a syntactically valid but incorrect
+  audience/team or missing edge policy. The operator must verify actual Access settings first.
 
-Dashboard labels change. The names below were checked against official documentation on 2026-11-08,
-not against your signed-in account. Use the linked product page if navigation differs; do not select
-an unrelated product just because a menu label is missing.
+After replacing the selected environment's placeholders, run the matching preflight before
+merge/migration:
 
-## 2. Worker names and URLs
+```powershell
+node scripts\deployment.ts access test
+```
 
-| Environment | Wrangler environment | Worker name              | Site URL                                               |
+Use `node scripts\deployment.ts access production` for PROD instead. The workflow runs the same
+preflight before its migration command. Top-level local placeholders are not checked.
+
+Dashboard navigation and session-duration support were checked against official documentation on
+2026-11-09, not your signed-in account. Check your account's available options if labels differ.
+
+## 2. Worker names, origins and D1 isolation
+
+| Environment | Wrangler environment | Worker name              | Intended site URL                                      |
 | ----------- | -------------------- | ------------------------ | ------------------------------------------------------ |
 | TEST        | `test`               | `button-eye-reader-test` | `https://button-eye-reader-test.cgcnnunes.workers.dev` |
 | PROD        | `production`         | `button-eye-reader-prod` | `https://button-eye-reader-prod.cgcnnunes.workers.dev` |
 
-These are this repository's intended URLs. Copy actual URLs from Cloudflare or deployment logs;
-never guess the account subdomain or reuse a deleted Worker's URL.
+Copy actual URLs from **Workers & Pages > Worker > Settings > Domains & Routes** or deployment logs;
+do not guess another account's subdomain. Keep `workers_dev: true` and `preview_urls: false`. For a
+new account, configure its workers.dev subdomain and each intended deployment hostname before its
+first deployment. Use a Worker-only placeholder without Git integration if needed to configure
+Access beforehand. Do not publish an unprotected app while waiting to configure Access.
 
-**Existing Workers:** find them on
-[Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages). Open each Worker and
-find **Settings > Domains & Routes**. Confirm its `workers.dev` URL is enabled and that no Git
-repository/build integration is attached.
+Static assets use `./dist`; `run_worker_first: true` applies application security headers to every
+asset. It does **not** configure Access. Access must protect the **entire hostname, every path**,
+including `/`, `/index.html`, `/app`, `/api/*`, built assets and `release.json`, on both
+environments. Audit any custom domains, routes, alternate hostnames and version URLs too: remove
+unused entry points or protect each one. Protecting only previews or only `/app` is insufficient.
 
-**New account:** configure your account's `workers.dev` subdomain on Workers & Pages. The configured
-Workers can be created by their first GitHub Actions deployments; you do not need to deploy a Hello
-World starter first. Before that deployment, use the name/subdomain to configure each expected URL,
-then verify it against the actual URL reported by Wrangler.
+The existing, distinct TEST/PROD D1 IDs in `wrangler.jsonc` remain unchanged; do not create
+replacement databases for this migration. The top-level all-zero database ID is local only. Never
+bind TEST and PROD to the same database. For another account, provision separate databases and
+replace the remote IDs through a reviewed feature PR:
 
-If you prefer creating placeholders in the dashboard, use a Worker-only creation option without Git
-integration **if one is offered**. The current
-[dashboard guide](https://developers.cloudflare.com/workers/get-started/dashboard/) emphasizes
-Git-connected creation; do not follow that integration for this project.
-
-Configuration checks in `wrangler.jsonc`:
-
-- Worker names match the table; `workers_dev: true`, `preview_urls: false`.
-- Static assets come from `./dist`.
-- `/`, `/index.html`, `/api/*` and `/app/*` run through `src/worker.ts`. The landing/login/setup
-  page is public. `/app` and all its descendants require a caregiver session cookie before any
-  static asset is served; optional TEST Access is an additional layer. Public assets do not
-  constitute permission to use the authenticated APIs.
-- No custom eye-tracking header or website camera permission is needed. Apple Eye Tracking is
-  configured on the iPad independently of TEST/PROD. Optional Access authentication is unchanged.
-
-For another account, update URLs and secrets. For another app, also change Worker names in
-`scripts/deployment-policy.ts` and its tests. Separate Workers do not isolate future shared
-databases or bindings automatically. TEST and PROD use separate D1 databases below; account boards
-belong to the corresponding environment, not browser local storage.
-
-### Provision the account databases before deployment
-
-`wrangler.jsonc` now contains the provisioned, distinct TEST and PROD D1 IDs. When deploying to
-another account, replace both remote IDs with that account's database IDs. The all-zero top-level ID
-is for local development only. There is no working-account fallback: absent `DB`, failed migrations,
-or unavailable D1 produce HTTP 503. Never point TEST and PROD at the same database.
-
-Using authenticated Wrangler in the correct Cloudflare account:
-
-```sh
+```powershell
 npx wrangler login
+npx wrangler whoami
 npx wrangler d1 create button-eye-reader-test
 npx wrangler d1 create button-eye-reader-prod
 ```
 
-Copy the returned IDs into `env.test.d1_databases[0].database_id` and
-`env.production.d1_databases[0].database_id`. Keep each binding named `DB` and each `migrations_dir`
-set to `migrations`. Commit and merge these configuration changes through a feature PR before
-expecting GitHub Actions to use them: local/staged edits do not change a workflow's checked-out
-commit. A failed run with placeholder IDs cannot be repaired by rerunning that same commit. Confirm
-the selected account/IDs before applying:
+Keep the binding named `DB` and `migrations_dir: "migrations"`. Missing D1, missing/placeholder
+Access configuration or unavailable infrastructure fail closed with HTTP 503 on the API. Browser
+local storage is not an authority or fallback for cloud boards.
 
-```sh
-npx wrangler d1 migrations apply DB --env test --remote
-npx wrangler d1 migrations apply DB --env production --remote
-```
+## 3. Configure Cloudflare Access first
 
-The TEST/PROD deployment workflows apply that environment's migrations before deployment. Tokens
-used for database creation, migration and account administration need **Account > D1 > Edit** for
-the intended account in addition to the existing Workers Scripts deployment permission. Use separate
-least-privilege administrator credentials; no administrator token belongs in browser assets. D1
-permissions are account-scoped, not a substitute for careful environment selection. Back up and
-review migrations before changing a live schema. Static release artifacts do not include or roll
-back caregiver database contents.
+Cloudflare Access is the **single login**. There are no application passwords, invitations, reset
+links, account-administration CLI or application session cookies. Separate self-hosted Access
+applications protect TEST and PROD, with separate audience tags and independently managed policies.
+The same human may use both, but their D1 boards remain separate.
 
-Passwords use native WebCrypto PBKDF2-HMAC-SHA256 with **600,000 iterations**, a fresh 32-byte
-random salt and a 32-byte derived hash. There is no reduced-iteration fallback. The installed
-Miniflare/workerd runtime with compatibility date `2026-11-07` successfully derived an independent
-600,000-iteration test vector; the earlier reported 100,000 limit does not apply to this tested
-runtime. Re-run `tests/accounts.test.ts` before runtime upgrades. This is local runtime evidence,
-not a remote deployment measurement. Password operations can exceed the Workers Free CPU budget: use
-Workers Paid and measure/configure an adequate CPU limit before live provisioning. Do not reduce the
-KDF cost to make a Free deployment pass.
+Cloudflare offers a [Zero Trust Free plan](https://www.cloudflare.com/plans/zero-trust-services/)
+for small deployments. Stay within current Access, Workers and D1 Free limits; monitor usage.
+Removing password derivation avoids its former CPU expense, but does not guarantee unlimited free
+traffic or establish production runtime performance. A paid password-hashing plan is no longer a
+requirement of this application.
 
-### Invitation-only accounts and recovery
+### Protect both entire hosts
 
-#### Add a new user step by step
+For **each** Worker:
 
-There are two independent identities: an optional Cloudflare Access email permits entry to TEST,
-while the application username/password opens that environment's saved communication board. Allowing
-an email in Access does not create an app account, and creating an app account does not add an
-Access email.
+1. Open **Workers & Pages > Worker > Access > Protect this Worker behind Access**.
+2. Choose **All traffic**, not **Previews only**, and apply Access. Edit an existing protection
+   application rather than creating overlapping applications.
+3. In **Zero Trust > Access controls > Applications**, inspect its hostname coverage. Ensure the
+   entire deployment hostname is included without a path restriction.
+4. Configure a human **Allow** policy and a separate automation **Service Auth** policy below. Do
+   not add **Bypass**, **Everyone**, or service tokens to the human Allow rule.
+5. Save and reload to confirm settings persisted; repeat independently for the other Worker.
 
-1. Open a terminal in the repository root. Authenticate with `npx wrangler login`, then run
-   `npx wrangler whoami` and confirm the account owning the intended Worker/database. The operator
-   needs D1 editing permission; the database must be provisioned and migrated.
-2. Choose **TEST** or **PROD** deliberately. Accounts and boards are separate: a TEST invitation
-   does not create a PROD account. Choose a username, not an email address.
-3. For TEST, replace `test-user` below with the desired username and run:
+Do not use **Protect all Workers** unless you deliberately intend to protect every unrelated Worker
+in that account. No Tunnel is needed for a hosted Worker.
 
-   ```powershell
-   node scripts\accounts.ts invite --env test --username test-user --origin https://button-eye-reader-test.cgcnnunes.workers.dev
-   ```
+**Branding tradeoff:** whole-host Access runs before any static HTML is served. An unauthenticated
+visitor sees Cloudflare's login, not this application's branded home. The branded home and entry
+control are available only after Access admission. A public branded pre-login home would require a
+separate public hostname or a different edge policy and is not part of this architecture.
 
-   For PROD, use this command instead, only after PROD database setup and account deployment:
+### Add a caregiver with email OTP
 
-   ```powershell
-   node scripts\accounts.ts invite --env production --username test-user --origin https://button-eye-reader-prod.cgcnnunes.workers.dev
-   ```
+1. Open **Zero Trust > Integrations > Identity providers > Add new identity provider** and choose
+   **One-time PIN**. New organizations do not necessarily enable OTP automatically.
+2. Edit the chosen TEST or PROD application, enable One-time PIN as its login method, and attach a
+   human **Allow** policy with **Include > Emails**, listing only approved caregiver addresses.
+3. Save, reload and confirm the login method and policy. Add the user separately to the other
+   environment if required; allowing TEST does not permit PROD.
+4. Open the HTTPS site in iPad Safari, enter the approved email, select **Send login code**, then
+   enter the emailed code and select **Sign in**. Codes expire after ten minutes. Access
+   deliberately reports that a code was sent even when an address is not allowed.
+5. Enter the board. The first valid human session creates default preferences keyed by the verified
+   Access `sub`. The displayed `username` is the verified email, not a separate account username.
 
-4. Send the printed one-use setup link directly to the intended caregiver. It expires after 24
-   hours. Treat it like a password: never paste it into chat, tickets, shared logs or CI.
-5. If TEST uses Cloudflare Access, open its application in **Zero Trust > Access > Applications**,
-   edit the human **Allow** policy and add the intended user's email to the permitted **Emails**
-   selector. Preserve existing permitted users and the separate automation **Service Auth** policy;
-   do not allow everyone or put caregiver emails in the automation policy. Dashboard labels may
-   vary; see the optional browser Access section below. This step can be done in the dashboard, but
-   it only grants entry through Access.
-6. The caregiver opens the link in Safari, completes Access email/code login if required, then
-   chooses a 12–128-character app password. If Access redirected away from the setup form, reopen
-   the original invitation link after completing Access login.
-7. Subsequent app logins use the chosen **username and password**, not the Access email/code.
-   Confirm the four speaking buttons appear. A new account starts with default phrases; existing
-   browser-local phrases are not imported.
+Use the
+[OTP guide](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/one-time-pin/)
+for current setup and blocked-email troubleshooting. A supported identity provider may replace OTP,
+but the Worker still requires a signed human email claim. Revocation is managed in Access, not D1.
+Removing an email from a policy does not erase its board; agree retention and verified recovery
+procedures separately.
 
-There is currently no dashboard or in-app **Add user** control. Do not create accounts by manually
-inserting D1 rows or storing plaintext passwords: the CLI securely generates the one-use token,
-stores its hash/expiry and initializes the board. The caregiver chooses the password on the site.
+### Set session durations deliberately
 
-If the username already exists or its invitation has expired, issue a replacement setup link using
-`reset` with the same environment, origin and username, rather than another `invite`. This also
-works for an invited account that has not yet chosen a password. Send the new link privately;
-redeeming it preserves the board and revokes existing app sessions.
+The
+[session-management guide](https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/)
+currently supports a **global duration up to one month** and an application duration up to one
+month:
 
-#### Operator commands and recovery details
+- **Zero Trust > Access controls > Access settings > Set your global session duration**: choose
+  **one month (approximately 30 days)** to avoid unnecessary repeated OTP challenges.
+- On each **Applications > Edit > Session Duration**, choose **24 hours**.
+- Inspect every human policy's **Session Duration**. Use **Same as application session timeout** or
+  an explicit **24 hours**; a policy override takes precedence over the application duration.
 
-There is **no public sign-up or administrator HTTP endpoint**. An authenticated operator creates
-accounts or recovery links with Wrangler:
+These are different timers. Application expiry triggers policy re-evaluation and can renew access
+using a still-valid global identity session without a new OTP. This is not a guaranteed fixed 30-day
+application session. Cloudflare One Client authentication, if enabled, can take precedence; do not
+enable it inadvertently. Check actual saved options and test renewal in Safari.
 
-```sh
-node scripts/accounts.ts invite --env test --username caregiver --origin https://button-eye-reader-test.cgcnnunes.workers.dev
-node scripts/accounts.ts reset --env test --username caregiver --origin https://button-eye-reader-test.cgcnnunes.workers.dev
-node scripts/accounts.ts invite --env production --username caregiver --origin https://button-eye-reader-prod.cgcnnunes.workers.dev
-node scripts/accounts.ts reset --env production --username caregiver --origin https://button-eye-reader-prod.cgcnnunes.workers.dev
-```
+The app never rotates its own session cookie. Logout clears in-memory communication data/stops
+speech before browser navigation to `/cdn-cgi/access/logout`, handled by Access. There is no
+`POST /api/logout`. Test actual Access logout/re-entry, including any identity-provider session, on
+the intended shared device.
 
-Usernames are case-insensitive, 3–64 ASCII characters, start with a letter/digit and otherwise allow
-letters, digits, `_`, `.` and `-`. A duplicate invitation fails; use reset for an existing account.
-Reset never creates an account. Each command prints exactly one private setup URL, valid for 24
-hours and usable once. Issuing a new link replaces any older unconsumed link for that account. The
-URL is `ORIGIN/#setup=TOKEN`: the fragment is not sent in the HTTP URL or Referer. The frontend
-removes it and submits it only to the same-origin setup API. Give this bearer link directly to the
-caregiver; do not paste it into shared logs, CI, analytics or tickets. No password is accepted as a
-CLI argument or printed. Passwords (12–128 characters) are chosen on the site. SQL is submitted
-using Wrangler's inline query mode so JSON confirmation contains the returned account ID instead of
-file-import progress messages. SQL contains only the token hash, account identifiers and default
-board, never the raw link token or a password.
+### Configure the signed identity verifier
 
-If an older CLI reports `Unexpected token` while checking file uploads, the database operation may
-already have completed. Update to the corrected CLI and use `reset` with the same username,
-environment and origin to issue a new link; do not delete the account or repeat an invitation
-blindly. If reset reports that the account does not exist, run `invite` instead.
+In each application's **Additional settings**, copy the **Application Audience (AUD) Tag**. Find the
+exact team domain from Zero Trust, for example `<team>.cloudflareaccess.com`. Replace:
 
-Redeeming either link atomically changes the password, consumes all recovery links and revokes all
-older sessions for that account. Reset preserves the board and revision. An issued but unredeemed
-reset does not revoke current sessions; emergency revocation must be performed by an authenticated
-operator, for example:
+| Wrangler environment vars        | Value to configure                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------ |
+| `ACCESS_TEAM_DOMAIN`             | Exact lowercase team hostname ending in `.cloudflareaccess.com`; no scheme/path/port |
+| `env.test.vars.ACCESS_AUD`       | TEST application's actual 64-character hexadecimal audience tag                      |
+| `env.production.vars.ACCESS_AUD` | PROD application's actual, distinct audience tag                                     |
 
-```sh
-npx wrangler d1 execute DB --env production --remote --command "DELETE FROM sessions WHERE account_id IN (SELECT id FROM accounts WHERE username = 'caregiver')"
-```
+Update each environment's `ACCESS_TEAM_DOMAIN`, and configure top-level vars only if you need local
+use. These identifiers are not credentials; never put service secrets or bearer JWTs in Wrangler
+vars, browser bundles or source. Placeholder strings intentionally cause API 503 until replaced.
+Deleting/recreating an Access application changes its audience and requires coordinated
+configuration.
 
-Account boards are initialized once using `defaultBoard()`. Loading a saved board never imports
-browser storage, applies catalogue upgrades, or silently reorders preferences.
+The Worker verifies `Cf-Access-Jwt-Assertion` with JOSE `createRemoteJWKSet`/`jwtVerify`, restricted
+to RS256, the exact HTTPS issuer, the environment audience and required `exp`, `iat`, `sub`. Future
+issued-at times, invalid signatures, expiry, invalid human emails and service-token claims are
+rejected. Keys are fetched/cached only from the validated configured team host at
+`https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`; an arbitrary JWT issuer cannot choose a
+fetch destination. Unverified email headers, old app cookies and service credentials never establish
+caregiver identity. See
+[JWT validation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/).
 
-### Sessions and API contract
+### Configure automation independently in BOTH environments
 
-Every authenticated response validates its session against D1. Cookies contain only a random opaque
-token; D1 stores its SHA-256 hash, not the raw cookie. Cookies are `HttpOnly`, `SameSite=Strict`,
-`Secure`, `Path=/` and host-only (`__Host-reader`). Sessions have an absolute 30-day lifetime. At 24
-hours the token renews with an atomic compare-and-swap; concurrent renewals converge on one new
-opaque token. The previous token has a 60-second in-flight grace period. Renewal never extends the
-absolute expiry. Logout deletes the session, including its old-token grace. Password reset revokes
-all sessions, including concurrent logins guarded by the previous password hash.
+1. In **Zero Trust > Access controls > Service credentials > Service Tokens**, create a distinct
+   smoke-test token for each environment, with a deliberate expiration.
+2. Copy its Client ID/Client Secret directly into that GitHub environment's secrets below.
+3. Attach an application policy with action **Service Auth**, **Include > Service Token** and only
+   that environment's token. Keep the human Allow policy separate.
+4. Save and reload both applications, verify token expiration, and plan rotation.
 
-| Request            | JSON input             | Success                                                    |
-| ------------------ | ---------------------- | ---------------------------------------------------------- |
-| `GET /api/session` | None                   | `{username, csrf, board, revision}`                        |
-| `POST /api/login`  | `{username, password}` | Same session shape and cookie                              |
-| `POST /api/setup`  | `{token, password}`    | Same session shape and cookie; username preset by operator |
-| `POST /api/logout` | No body required       | 204 and expired cookie                                     |
-| `PUT /api/board`   | `{board, revision}`    | `{board, revision}` with revision incremented              |
+Workflows send `CF-Access-Client-Id` and `CF-Access-Client-Secret` only for that environment's smoke
+requests. Both values are required together on TEST **and** PROD. Never inject them into Safari,
+extensions, bookmarks or app code. These credentials allow build-identity assets through the edge;
+`GET /api/session` must still return the Worker's 401 JSON error for automation, not a human board.
+Expired/missing credentials can instead be rejected/redirected by Access before the Worker runs.
+Smoke requests must not follow login redirects.
 
-Logout and board writes require `x-csrf-token` from the session response. All mutations require an
-exact same-origin `Origin`; a present `Sec-Fetch-Site` must be `same-origin`. Login, setup and board
-writes require `application/json`. Credential failures are indistinguishable for nonexistent and
-existing usernames. D1-backed limits allow ten attempts per 15-minute window per hashed source IP
-and, for login, per hashed username; setup shares the IP limit. JSON bodies are capped at 70,000
-bytes. Boards retain exactly four valid slots, version 1, at most 256 phrases, 128-character IDs,
-100-character phrase text and 64,000 serialized characters.
+Official references:
+[Worker Access](https://developers.cloudflare.com/workers/configuration/cloudflare-access/),
+[service tokens](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/),
+[policies](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/).
 
-Unauthenticated API session requests return 401. Unauthenticated HTML GET requests to `/app` or its
-descendants redirect with 303 to `/`, including bookmarked pages after logout or session expiry.
-These redirects contain no credentials and retain the security headers and `no-store`; non-HTML app
-requests remain 401. The public root is served directly, without a login redirect. API failures have
-only `{error: string}` with visible pt-PT messages. A stale board revision returns **409** without
-overwriting stored data; refresh and deliberately resolve the conflict. Missing DB/infrastructure
-failures return 503. Dynamic responses deny framing and camera/microphone/geolocation, disallow
-referrers, and set `Cache-Control: no-store`. Unexpected failures emit a fixed diagnostic category,
-an allowlisted exception type and a known API route (or `other`), never raw exception messages,
-query strings, request bodies, usernames, phrases, passwords, cookies or invitation tokens.
-Application permission does not disable Apple's system Eye Tracking.
+## 4. Back up and migrate D1 with a maintenance window
 
-#### Diagnose a failed password setup safely
+**Migration 0002 irreversibly drops password/session/invitation/rate-limit tables. Back up before
+applying it.** Do not edit already-applied `0001_accounts.sql`. Migration and Worker deployment are
+not atomic: the preceding password-authentication Worker is incompatible with the new schema.
+Arrange a brief maintenance window for each environment, restrict entry at the edge if needed, and
+apply migration 0002 immediately before deploying the new Access Worker. Workflows apply migrations
+before deploying, so a failed Worker deployment can leave an incompatible old Worker live. Recover
+forward with this release; **do not revert to the old Worker**. Restoring a database/old release
+requires separate authorized recovery planning, not an ordinary artifact rollback.
 
-Wrangler tail's `Ok` outcome means the Worker completed execution, not that setup succeeded. An
-unexpected exception is caught and becomes HTTP 503 with a generic user-visible message. Expected
-invalid/expired invitation errors have their own message and are not logged as unexpected failures.
-
-Stored Observability remains disabled in the repository configuration. To see live diagnostics:
+Before each environment's first Access release:
 
 ```powershell
-npx wrangler tail --env test --format pretty
+npx wrangler whoami
+npx wrangler d1 migrations list DB --env test --remote
+npx wrangler d1 execute DB --env test --remote --command "SELECT name FROM sqlite_master WHERE type='table'; PRAGMA table_info(accounts);"
+New-Item -ItemType Directory -Force .wrangler\backups
+npx wrangler d1 export DB --env test --remote --output .wrangler\backups\test-before-access.sql
 ```
 
-Wait for connection, retry the setup once, then stop with Ctrl+C. Share only the
-`Account request failed` diagnostic fields, not complete tail output or a private setup URL.
-`password-kdf-limit` indicates a runtime PBKDF2 iteration limit; `cryptography-operation` indicates
-another cryptographic failure; `database-operation` indicates a D1/SQLite failure. Other failures
-use `unexpected-operation`; these categories are clues, not a full root-cause diagnosis. Platform
-CPU-limit failures may appear separately as a request outcome. Do not reduce password hashing cost,
-assume a paid plan fixes a crypto limit, or recreate/delete an account based solely on the generic
-message. Confirm the cause first.
+Repeat deliberately with `--env production` and a separate `production-before-access.sql`. Protect
+the backups: they contain legacy password hashes and private phrases. `.wrangler` is ignored; do not
+commit, upload to CI artifacts or share these files. Confirm export success and a secure recovery
+copy before proceeding. Use administrator credentials with **Account > D1 > Edit**.
 
-Public PROD smoke checks validate public home/build asset identity without a caregiver cookie. The
-additional unauthenticated `GET /api/session` check must return exactly 401, `application/json`,
-`Cache-Control: no-store` and only `{error: string}`; 503 fails deployment. Optional TEST Access
-service headers are still sent for its infrastructure gate, but never count as a caregiver account
-session.
+Inspect the migration ledger and schema before applying. For an existing database, migration 0001
+must already be recorded and its schema must match the original migration. A fresh database applies
+0001 then 0002. If the tables exist but Wrangler reports 0001 pending, stop: inspect the actual
+`d1_migrations` schema/rows and compare every table, index and constraint with 0001. An authorized
+owner must review and baseline the matching already-applied migration using Wrangler's ledger schema
+before allowing 0002. If schemas differ, investigate and plan an explicit corrective migration. **Do
+not replay 0001, add blind `IF NOT EXISTS`, or blindly mark mismatched migrations applied.** Verify
+with `migrations list` again after any reviewed ledger repair.
 
-### Local backend testing
+After Access policies/configuration and backups are verified, the deployment workflow applies:
 
-Vite alone does not provide D1 APIs. Build then use Wrangler:
+```powershell
+npx wrangler d1 migrations apply DB --env test --remote
+```
 
-```sh
+PROD runs the equivalent `--env production` command on promotion, after its own backup and
+maintenance preparation. Manual application is an operator recovery/setup action, not a substitute
+for the standard release workflow.
+
+Migration 0002:
+
+- Creates `user_preferences(access_subject, board, revision)` with a nonnegative revision.
+- Copies existing `id`, `username`, `board`, `revision` into `legacy_board_archive`.
+- Drops `sessions`, `account_tokens`, `login_limits`, then `accounts` in foreign-key-safe order.
+- Copies **no password hashes, session tokens, invitations or authentication versions** to the
+  archive.
+
+The archive protects prior phrases for deliberate owner-verified recovery. It is **not** an
+authentication authority and is never automatically matched to Access email or subject. Even a
+matching legacy username does not authorize recovery. Confirm the rightful owner and their verified
+Access subject independently, validate the old board, and perform a reviewed transfer with revision
+coordination so a live board is not silently overwritten. Back up before any recovery write. Only
+after all needed recovery is completed, or a verified owner confirms none is needed, may an
+authorized administrator explicitly remove the archive with `DROP TABLE legacy_board_archive`. There
+is no automatic cleanup. Agree phrase, archive and backup retention policies first.
+
+## 5. Deployment credentials and GitHub environments
+
+Create GitHub environments named exactly `test` and `production`. Use environment secrets:
+
+| Setting                           | Type     | `test`                           | `production`                     |
+| --------------------------------- | -------- | -------------------------------- | -------------------------------- |
+| `CLOUDFLARE_ACCOUNT_ID`           | Secret   | Actual Workers account ID        | Actual Workers account ID        |
+| `CLOUDFLARE_API_TOKEN`            | Secret   | TEST deployment token            | PROD deployment token            |
+| `DEPLOYMENT_URL`                  | Variable | TEST root HTTPS origin           | PROD root HTTPS origin           |
+| `CLOUDFLARE_ACCESS_CLIENT_ID`     | Secret   | TEST smoke service Client ID     | PROD smoke service Client ID     |
+| `CLOUDFLARE_ACCESS_CLIENT_SECRET` | Secret   | TEST smoke service Client Secret | PROD smoke service Client Secret |
+
+`DEPLOYMENT_URL` has no path, query or fragment. GitHub supplies `GITHUB_TOKEN`. Access service
+credentials are separate from Cloudflare deployment/admin tokens and caregiver OTP.
+
+Find the
+[account ID](https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/), not
+a zone ID. Create separate [API tokens](https://dash.cloudflare.com/profile/api-tokens/) with
+**Account > Workers Scripts > Edit** and **Account > D1 > Edit**, scoped to the intended account.
+workers.dev requires no zone/DNS editing; do not grant AI, Containers or unrelated permissions.
+Account-scoped permissions do not restrict a token to one Worker; deliberate environment selection
+still matters. Keep administrator/Access-policy management credentials separate and least-privilege.
+
+Restrict GitHub `test` to **main** and `production` to **tags matching `v*`**, not branches. Save,
+reload and verify the rules. Configure production reviewers/prevent self-review if available;
+without a supported configured reviewer rule there is **no human approval pause**. Never expose PROD
+secrets to PR jobs. See [RELEASES.md](RELEASES.md#repository-protection).
+
+## 6. API, local testing and safe diagnostics
+
+Worker API contract after edge admission:
+
+- `GET /api/session` returns `{username, csrf, board, revision}` for a verified human. Username is
+  display email; identity/storage use Access `sub`, with issuer/audience fixed per environment.
+  Concurrent first loads initialize defaults once without replacing an existing board.
+- `PUT /api/board` receives `{board, revision}` with `x-csrf-token`, exact same-origin `Origin` and
+  JSON content type; an optional `Sec-Fetch-Site` must be `same-origin`. Success returns
+  `{board, revision: previous + 1}`. An atomic subject/revision update rejects stale saves with 409.
+- Invalid/missing/expired/service identity is 401 with only `{error: string}` and no board. Errors
+  use visible pt-PT messages; missing configuration/infrastructure is 503. Removed custom
+  login/setup/logout routes are not implemented. Access itself may redirect unauthenticated edge
+  traffic before the Worker can return an API response.
+
+CSRF is SHA-256 of a versioned tuple containing the fixed team/audience and stable verified subject,
+not the rotating JWT or email. It is **not a secret/authentication credential**. Its stability
+prevents JWT renewal from invalidating an open board's save token. Authorization still requires a
+fresh verified human JWT; exact Origin, JSON-only bounded bodies, the custom CSRF header and no
+cross-origin response access are the cross-site safeguards. No permissive CORS is provided. API
+responses/assets set no-store, deny framing, disallow referrers and disable app
+camera/microphone/geolocation; this does not disable Apple's system Eye Tracking.
+
+Vite alone has no backend. For local packaging/security-header checks:
+
+```powershell
 npm run build
 npx wrangler d1 migrations apply DB --env test --local
-node scripts/accounts.ts invite --env test --username caregiver --origin http://localhost:8787 --local
 npx wrangler dev --env test --local --port 8787
 ```
 
-Open the printed setup link on the same origin/port. HTTP is allowed only on loopback hosts
-(`localhost`, `127.0.0.1`, `[::1]`), using the separate `reader-local` HttpOnly cookie without
-`Secure`. Remote HTTP is rejected, even when DB is bound. `--local` administration is TEST-only.
-Local state remains in ignored `.wrangler`; never use real caregiver phrases in test fixtures.
+Local HTTP is permitted only on loopback (`localhost`, `127.0.0.1`, `[::1]`), **without bypassing
+identity verification**. Placeholder configuration returns 503; configured requests without a
+genuine signed Access assertion return 401. There is no local invitation, fake caregiver identity,
+password fixture or production verification-disable flag. Use the offline tests for authenticated
+backend development and the real Access-protected TEST host for Safari integration.
 
-Targeted backend validation:
-
-```sh
-npx vitest run tests/worker.test.ts tests/accounts.test.ts tests/accounts-cli.test.ts --coverage --coverage.include=src/accounts.ts --coverage.include=src/worker.ts
+```powershell
+npx vitest run tests\worker.test.ts tests\access.test.ts --coverage --coverage.include=src/access.ts --coverage.include=src/worker.ts
 ```
 
-These tests use real local D1 migrations and SQL, independent PBKDF2 vectors and actual workerd KDF
-support, plus typed mocks for rare reset/revocation failure races. They do not prove remote
-Cloudflare provisioning, production CPU affordability, or physical iPad eye-tracking accuracy.
-Expired rows are rejected even without deletion. Operators should periodically remove expired rows
-and choose account/phrase retention and backup policies appropriate to their deployment:
+Tests generate disposable RSA keys/JWTs in memory, mock only the configured HTTPS JWKS fetch and use
+real Miniflare D1 with both migrations. They verify
+forged/expired/wrong-issuer/wrong-audience/service rejection, subject isolation, renewal-stable
+CSRF, concurrency, migration archival and safe failures. Mocks are test dependencies, not deployment
+configuration; no signed fixtures/private keys or face images are stored. Per-file coverage remains
+90% statements/lines/functions and 80% branches.
 
-```sh
-npx wrangler d1 execute DB --env production --remote --command "DELETE FROM sessions WHERE expires_at <= unixepoch(); DELETE FROM account_tokens WHERE expires_at <= unixepoch(); DELETE FROM login_limits WHERE expires_at <= unixepoch();"
-```
+Observability storage stays disabled. For a live diagnosis, use
+`npx wrangler tail --env test --format pretty`, reproduce once and stop. Share only the fixed
+`Access request failed` category, allowlisted exception type and known operation (`/api/session`,
+`/api/board`, `other`). Never share complete tail output, tokens, JWTs, emails, phrases, query
+strings or request bodies. `access-key-service` means JWKS/verification infrastructure is
+unavailable; `database-operation` means D1/SQLite failed; `unexpected-operation` covers other
+failures. No raw exception message is logged. A successful tail execution outcome does not mean the
+HTTP request succeeded.
 
-Deleting expired records is housekeeping, not session/recovery authorization or a scheduled Worker
-requirement. D1 contains caregiver-entered phrases; restrict administrator access and agree a
-retention policy before using personal content.
+## 7. Deploy and verify
 
-## 3. Deployment credentials
+1. Configure BOTH whole-host Access applications, both service policies/secrets and real verifier
+   vars first. Back up and prepare the migration maintenance window.
+2. Squash-merge a reviewed PR with green checks. Wait for the entire **Deploy to TEST** workflow:
+   verification, migrations, Worker deployment, smoke checks, artifact and prerelease.
+3. Verify an unapproved browser cannot fetch home/API/assets; an approved email can complete the
+   single OTP login and load/save its board. Verify automation can retrieve assets but receives
+   exactly Worker 401 JSON/no-store from `/api/session`, never a caregiver board or Access login
+   HTML.
+4. On the intended iPad, record the `release.json` tag/SHA and acceptance from TESTING before the
+   next merge changes TEST. Test logout/renewal and preserved four speaking targets.
+5. Promote the exact tested prerelease tag using [RELEASES.md](RELEASES.md#promote-to-prod), after
+   PROD Access settings, backup and maintenance preparation. Verify the final workflow, footer and
+   `release.json`, human login and automation separation.
 
-Deployment credentials are required. They are **not** the optional Access login credentials.
-
-1. Find the account ID using Cloudflare's
-   [account ID guide](https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/).
-   Do not use a zone ID.
-2. Open [user API Tokens](https://dash.cloudflare.com/profile/api-tokens/). Create separate TEST and
-   PROD tokens using a custom policy:
-   - Policy type: **Account**.
-   - Permission: **Workers Scripts > Edit**.
-   - Resource: only the selected account.
-3. Copy each token directly into its GitHub environment secret; it is shown only once.
-
-This `workers.dev` deployment does not need zone/DNS editing. Do not grant permissions for AI,
-Containers or other unused products just to clear a dashboard warning. Add permissions only when
-deployment logs identify a necessary missing permission.
-
-Separate tokens help rotation/revocation, but account-scoped permissions do not restrict a token to
-one Worker. Never expose PROD credentials to PR jobs or put tokens in code, URLs, logs or chat. See
-[API token setup](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/).
-
-## 4. GitHub environments
-
-In the repository's **Settings > Environments**, create exactly `test` and `production`. Use
-environment secrets, not repository-wide PROD secrets.
-
-| Setting                           | Type     | `test`                   | `production`          |
-| --------------------------------- | -------- | ------------------------ | --------------------- |
-| `CLOUDFLARE_ACCOUNT_ID`           | Secret   | Workers account ID       | Workers account ID    |
-| `CLOUDFLARE_API_TOKEN`            | Secret   | TEST deployment token    | PROD deployment token |
-| `DEPLOYMENT_URL`                  | Variable | TEST root HTTPS URL      | PROD root HTTPS URL   |
-| `CLOUDFLARE_ACCESS_CLIENT_ID`     | Secret   | Only if TEST uses Access | Leave unset           |
-| `CLOUDFLARE_ACCESS_CLIENT_SECRET` | Secret   | Only if TEST uses Access | Leave unset           |
-
-`DEPLOYMENT_URL` must have no path, query or fragment. GitHub supplies `GITHUB_TOKEN`; do not create
-a personal token for these workflows.
-
-Under deployment branch/tag restrictions, select specific refs:
-
-- `test`: allow the **main branch**.
-- `production`: allow **tags matching `v*`**, not branches.
-- Save, reload and confirm the rules exist; selected-ref mode without rules is not a restriction.
-
-If available, configure required reviewers and prevent self-review for `production`. Availability
-depends on GitHub plan and repository visibility. **Without that rule, there is no approval pause.**
-Check your current settings rather than relying on a previously observed dashboard.
-
-Allow the repository's Actions and authorized tag/release creation. Protect existing tags against
-rewriting/deletion without blocking the release workflow. Details:
-[GitHub environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
-
-## 5. Optional TEST authentication
-
-**Public TEST:** skip this section and leave both Access secrets unset. PROD's home/login is public;
-its board and account APIs still require invitation-only caregiver authentication. **Protected
-TEST:** configure an Access application covering its deployment hostname and all paths. Protecting
-preview URLs alone does not protect the TEST URL.
-
-For a new protected TEST:
-
-1. On **Workers & Pages**, open **button-eye-reader-test**.
-2. Open the **Access** tab and select **Protect this Worker behind Access**.
-3. Choose **All traffic**, not **Previews only**. Here "all traffic" means traffic to this TEST
-   Worker, not the app's PROD Worker.
-4. Select/configure an authentication policy, then **Apply Access**.
-5. Configure browser and automation policies below.
-
-If already protected, edit its existing Access application rather than creating another. Enable Zero
-Trust first if prompted. **Do not use Protect all Workers**: that would also protect PROD. Do not
-configure a Tunnel for this already-hosted Worker. See
-[Worker Access setup](https://developers.cloudflare.com/workers/configuration/cloudflare-access/#protect-one-worker).
-
-| Who needs access?   | Authentication                            | Required policy when used                              |
-| ------------------- | ----------------------------------------- | ------------------------------------------------------ |
-| iPad/browser tester | One-time PIN or another identity provider | **Allow**, including approved users                    |
-| GitHub smoke checks | Client ID + Client Secret                 | **Service Auth**, including the selected service token |
-
-Access protection and browser login choices are optional. **Once TEST is protected, this
-repository's automated smoke checks need service-token access.** Browser login cannot authenticate
-those checks; Service Auth alone does not give Safari an email-code login.
-
-### Optional browser access: email code on iPad Safari
-
-Cloudflare offers a free Zero Trust plan. No paid Safari header tool is needed.
-
-1. Find **Identity providers** in Zero Trust (currently **Integrations > Identity providers**). Add
-   **One-time PIN**; new accounts do not necessarily have it enabled.
-2. Edit the TEST Access application and enable One-time PIN as a login method.
-3. Attach a separate **Allow** policy: **Include > Emails**, with approved tester addresses only.
-4. Keep the existing **Service Auth** policy for automation.
-5. Save, reload and confirm the login method and both policies persisted.
-6. Open TEST in iPad Safari, request an email code and enter it. Sign in again when the session
-   expires.
-
-A different identity provider can replace One-time PIN with its matching Allow policy. Do not add an
-everyone/Bypass rule to fix a login problem. Safari has no built-in custom-header setting; keep
-service-token credentials out of extensions, bookmarks, query strings and app code.
-
-### Optional automated access: service token
-
-1. Find **Service Tokens** in Zero Trust (currently **Access controls > Service credentials >
-   Service Tokens**).
-2. Create a token, choose its expiration and copy its Client ID and Client Secret.
-3. Attach a **Service Auth** policy to the TEST application: **Include > Service Token**, selecting
-   that token. Keep it separate from the browser Allow policy.
-4. Save both values in the GitHub `test` environment using the Access secret names in section 4.
-
-The workflow sends `CF-Access-Client-Id` and `CF-Access-Client-Secret` only during TEST smoke
-checks, including model/WASM requests. Both secrets must be set together. They are never bundled
-into the app, and smoke requests do not follow redirects. PROD sends no Access credentials.
-
-**Verify both paths:** an approved iPad browser can sign in; an unauthenticated browser is denied;
-TEST smoke checks pass. To make TEST public, remove its Access protection and clear both GitHub
-Access secrets together. Editing repository files does not configure Cloudflare policies or GitHub
-secrets.
-
-Official guides:
-[One-time PIN](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/one-time-pin/),
-[Service tokens](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/),
-[Policies](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/).
-
-## 6. Deploy and verify
-
-1. Squash-merge a reviewed PR with green checks. The main push starts **Deploy to TEST**.
-2. Wait for the whole workflow to succeed: verification, deployment, smoke checks, artifact and
-   prerelease creation. A started build or a tag alone is not success.
-3. On iPad, test the deployed version using [TESTING.md](TESTING.md). Record the tag/SHA from
-   `release.json` before another merge replaces TEST.
-4. Follow [PROD promotion](RELEASES.md#promote-to-prod) using that exact tested tag.
-5. Confirm PROD's final workflow result, site footer and `release.json`. Verify sound, four phrases,
-   catalogue controls and native Eye Tracking on the device.
-
-Smoke checks verify release identity, exact HTML/marker bytes and security headers. They do not
-prove physical eye-tracking accuracy or Safari speech behavior.
+Smoke/local tests prove build identity and software behavior, **not** remote policy configuration,
+Free-plan capacity, Safari audio authorization or physical iPad Eye Tracking accuracy.
 
 ## Troubleshooting
 
-Start with the failed **GitHub Actions step**, not unrelated Cloudflare dashboard console warnings.
+Start with the failed GitHub Actions step, not unrelated dashboard warnings.
 
-| Problem                                      | Check/action                                                                                                                                |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unexpected Cloudflare build                  | Disconnect Workers Builds/Git integration/hooks. Only Actions should publish.                                                               |
-| Authentication/permission failure            | Account ID, correct token, expiration, and the specific permission in the log.                                                              |
-| Missing configuration/assets                 | Repository root, `wrangler.jsonc`, TEST build or PROD artifact download.                                                                    |
-| TEST environment rejects `main`              | Allow the main branch in GitHub's `test` environment.                                                                                       |
-| iPad cannot sign in                          | Enabled identity provider and browser Allow policy; retain Service Auth.                                                                    |
-| Email code does not arrive                   | Approved address, spam folder, login method. Access may say it sent a code even for a denied address.                                       |
-| TEST smoke checks redirect or return 401/403 | Both Access secrets, expiration and Service Auth policy. If TEST should be public, check for unexpected protection.                         |
-| URL/Worker mismatch                          | Compare `DEPLOYMENT_URL`, Wrangler name and actual deployed URL. Deployment may already have changed the wrong Worker.                      |
-| Model/WASM or Node error                     | Asset download/checksum logs, `.nvmrc`, and setup-node output. Do not skip checks.                                                          |
-| Old site                                     | Correct URL and final workflow success; compare `release.json`, not just a build notification.                                              |
-| Tag exists but release creation failed       | Fix permissions and rerun the same commit; never move/delete the tag.                                                                       |
-| Artifact expired/tampered                    | Rerun TEST for the same eligible prerelease and repeat acceptance. Never rebuild silently for PROD.                                         |
-| PROD changed but workflow failed             | Inspect the deployed Worker; no automatic rollback. Retry a transient failure while still prerelease; code/config fixes need a new release. |
+| Problem                              | Check/action                                                                                  |
+| ------------------------------------ | --------------------------------------------------------------------------------------------- |
+| Unexpected Cloudflare build          | Disconnect Git/Workers Builds/hooks; only Actions publishes.                                  |
+| Permission failure                   | Actual account, token expiry, Workers Scripts/D1 permissions.                                 |
+| API 503 immediately                  | Replace Access placeholders, verify exact team/AUD and DB binding/schema.                     |
+| Migration table already exists       | Inspect schema and ledger; back up and review baseline, never blind `IF NOT EXISTS`.          |
+| Old Worker fails after 0002          | Complete forward deployment during maintenance; old password Worker is incompatible.          |
+| Email code does not arrive           | Allow email in the correct environment, enable OTP, check spam/email gateway.                 |
+| Smoke redirect/401/403 before assets | Both service secrets, expiry and separate Service Auth policy on that environment.            |
+| Smoke `/api/session` returns 200     | Unsafe human/service identity separation; stop promotion and investigate.                     |
+| Branded home missing before login    | Expected whole-host edge protection, not an asset bug.                                        |
+| JWT rejected                         | Exact team issuer/AUD, clock, expiry, human email and service-token exclusion; never log JWT. |
+| Save conflicts                       | Reload and deliberately reconcile revisions; do not overwrite silently.                       |
+| URL/old site mismatch                | Actual Worker name/origin, deployment completion and `release.json`.                          |
+| Artifact expired/tampered            | Eligible TEST retry and repeated acceptance; never silently rebuild PROD.                     |
+| Release creation failed              | Repair permission and retry eligible commit; never move/delete its tag.                       |
+| PROD changed but workflow failed     | Inspect live state; no atomic rollback. Recover forward or use authorized recovery.           |
 
-Stable releases cannot be redeployed/downgraded by this promotion workflow. Deleting Workers does
-not reset GitHub tags/releases. Emergency rollback needs authorization and a separate procedure.
+Stable releases cannot be downgraded by promotion. Deleting Workers does not reset immutable release
+history. Emergency rollback needs authorization and a database-compatible separate procedure.

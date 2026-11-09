@@ -1,117 +1,165 @@
+import type { JWTPayload } from 'jose';
+import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { convertV4MiniflareOptions, Miniflare } from 'miniflare';
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Database } from '../src/accounts';
-import { digest, initialBoard, randomToken, RENEW_SECONDS, SESSION_SECONDS } from '../src/accounts';
+import type { Database } from '../src/access';
 import { defaultBoard } from '../src/store';
 import * as workerModule from '../src/worker';
 import worker from '../src/worker';
 
 const origin = 'https://reader.example';
-const COOKIE_NAME = '__Host-reader';
-const assets = {
-  fetch: vi
-    .fn<(request: Request) => Promise<Response>>()
-    .mockImplementation(() => Promise.resolve(new Response('asset'))),
+const config = {
+  ACCESS_AUD: 'a'.repeat(64),
+  ACCESS_TEAM_DOMAIN: 'worker-tests.cloudflareaccess.com',
 };
+const now = Math.floor(Date.now() / 1000);
+const assets = { fetch: vi.fn<(request: Request) => Promise<Response>>() };
 let runtime: Miniflare;
-let db: Database;
-let invitation = '';
-let cookie = '';
+let db: Database & { exec(sql: string): Promise<unknown> };
+let keys: Awaited<ReturnType<typeof generateKeyPair>>;
+let assertion = '';
 let csrf = '';
-const start = 1_800_000_000;
+
+async function sign(claims: JWTPayload = {}): Promise<string> {
+  return new SignJWT({
+    aud: config.ACCESS_AUD,
+    email: 'caregiver@example.com',
+    exp: now + 3600,
+    iat: now - 1,
+    iss: `https://${config.ACCESS_TEAM_DOMAIN}`,
+    sub: 'caregiver-subject',
+    ...claims,
+  })
+    .setProtectedHeader({ alg: 'RS256', kid: 'worker-test-key' })
+    .sign(keys.privateKey);
+}
 
 async function request(
   path: string,
   options: RequestInit = {},
-  withCookie = true,
+  jwt = assertion,
 ): Promise<Response> {
   const headers = new Headers(options.headers);
 
-  if (withCookie && cookie) {
-    headers.set('cookie', cookie);
-  }
-
-  if (options.method && options.method !== 'GET') {
-    headers.set('origin', origin);
+  if (jwt) {
+    headers.set('cf-access-jwt-assertion', jwt);
   }
 
   return worker.fetch(new Request(`${origin}${path}`, { ...options, headers }), {
+    ...config,
     ASSETS: assets,
     DB: db,
   });
 }
 
-function payload(value: unknown): Pick<RequestInit, 'body' | 'headers'> {
+function payload(value: unknown): RequestInit {
   return {
     body: JSON.stringify(value),
-    headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+    headers: {
+      'content-type': 'application/json',
+      origin,
+      'x-csrf-token': csrf,
+    },
+    method: 'PUT',
   };
 }
 
-async function issue(name: string, existing = false, expiry = start + 86400): Promise<string> {
-  const token = randomToken();
-
-  if (!existing) {
-    await db
-      .prepare('INSERT INTO accounts (id, username, board) VALUES (?, ?, ?)')
-      .bind(name, name, initialBoard())
-      .run();
-  }
-
-  await db
-    .prepare(
-      `INSERT INTO account_tokens (token_hash, account_id, expires_at) VALUES (?, ?, ?)
-    ON CONFLICT(account_id) DO UPDATE SET token_hash = excluded.token_hash, expires_at = excluded.expires_at`,
-    )
-    .bind(await digest(token), name, expiry)
-    .run();
-
-  return token;
-}
-
-describe('account Worker with real local D1', () => {
+describe('Access Worker with signed JWTs and real local D1', () => {
   beforeAll(async () => {
     runtime = new Miniflare(
       convertV4MiniflareOptions({
         compatibilityDate: '2026-11-07',
-        d1Databases: { DB: 'accounts-tests' },
+        d1Databases: { DB: 'access-worker-tests' },
         modules: true,
         script: 'export default {fetch(){return new Response("ready")}}',
       }),
     );
 
-    const { DB: database } = await runtime.getBindings<{
-      DB: Database & { exec(sql: string): Promise<unknown> };
-    }>();
+    const bindings = await runtime.getBindings<{ DB: typeof db }>();
 
-    db = database;
+    db = bindings.DB;
 
-    await database.exec(
+    await db.exec(
       readFileSync(new URL('../migrations/0001_accounts.sql', import.meta.url), 'utf8').replaceAll(
         '\n',
         ' ',
       ),
     );
 
-    invitation = await issue('caregiver');
+    await db
+      .prepare(
+        'INSERT INTO accounts (id, username, password_hash, board, revision) VALUES (?, ?, ?, ?, ?)',
+      )
+      .bind(
+        'legacy-id',
+        'legacy-user',
+        'never-archive-this-hash',
+        JSON.stringify(defaultBoard()),
+        7,
+      )
+      .run();
+
+    await db
+      .prepare('INSERT INTO account_tokens (token_hash, account_id, expires_at) VALUES (?, ?, ?)')
+      .bind('legacy-token', 'legacy-id', now + 3600)
+      .run();
+
+    await db
+      .prepare(
+        'INSERT INTO sessions (id, account_id, auth_version, token_hash, csrf, rotation_key, renewed_at, expires_at) VALUES (?, ?, 0, ?, ?, ?, ?, ?)',
+      )
+      .bind(
+        'legacy-session',
+        'legacy-id',
+        'legacy-token',
+        'legacy-csrf',
+        'legacy-key',
+        now,
+        now + 3600,
+      )
+      .run();
+
+    await db.exec(
+      readFileSync(
+        new URL('../migrations/0002_cloudflare_access.sql', import.meta.url),
+        'utf8',
+      ).replaceAll('\n', ' '),
+    );
+
+    keys = await generateKeyPair('RS256', { extractable: true });
+
+    assertion = await sign();
   }, 30_000);
 
-  beforeEach(() => {
-    vi.spyOn(Date, 'now').mockReturnValue((start + 1000) * 1000);
+  beforeEach(async () => {
+    assets.fetch.mockImplementation(() => Promise.resolve(new Response('asset')));
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+        Response.json({
+          keys: [{ ...(await exportJWK(keys.publicKey)), alg: 'RS256', kid: 'worker-test-key' }],
+        }),
+      ),
+    );
   });
 
   afterAll(async () => {
+    vi.unstubAllGlobals();
+
     await runtime.dispose();
   });
 
-  it('exports only the Worker handler at runtime, as required by workerd', () => {
+  it('exports only the Worker handler and serves edge-protected assets, including automation', async () => {
     expect(Object.keys(workerModule)).toEqual(['default']);
-  });
 
-  it('serves public assets with security headers, not a session or fake accounts', async () => {
-    for (const path of ['/', '/index.html', '/assets/app.js']) {
-      const response = await worker.fetch(new Request(`${origin}${path}`), { ASSETS: assets });
+    for (const path of ['/', '/index.html', '/app', '/app/board', '/assets/app.js']) {
+      const response = await request(
+        path,
+        { headers: { 'cf-access-client-id': 'automation' } },
+        '',
+      );
 
       expect(await response.text()).toBe('asset');
 
@@ -122,603 +170,362 @@ describe('account Worker with real local D1', () => {
       expect(response.headers.get('cache-control')).toBe('no-store');
 
       expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+
+      expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+
+      expect(response.headers.get('x-frame-options')).toBe('DENY');
+
+      expect(response.headers.has('set-cookie')).toBe(false);
     }
   });
 
-  it('fails closed without a binding and refuses insecure remote HTTP', async () => {
-    const absent = await worker.fetch(new Request(`${origin}/api/session`), { ASSETS: assets });
-
-    expect(absent.status).toBe(503);
-
-    const absentBody: unknown = await absent.json();
-
-    expect(absentBody).toHaveProperty('error');
-
-    const insecure = await worker.fetch(new Request('http://reader.example/api/session'), {
-      ASSETS: assets,
-      DB: db,
+  it('archives existing boards without credentials and removes obsolete tables in FK-safe order', async () => {
+    expect(
+      await db.prepare('SELECT * FROM legacy_board_archive WHERE id = ?').bind('legacy-id').first(),
+    ).toEqual({
+      board: JSON.stringify(defaultBoard()),
+      id: 'legacy-id',
+      revision: 7,
+      username: 'legacy-user',
     });
 
-    expect(insecure.status).toBe(403);
-
-    expect((await request('/api/session', {}, false)).status).toBe(401);
-
-    expect((await request('/app/board', {}, false)).status).toBe(401);
-
-    expect(
-      (
-        await request(
-          '/api/session',
-          { headers: { cookie: `${COOKIE_NAME}=${'a'.repeat(64)}` } },
-          false,
-        )
-      ).status,
-    ).toBe(401);
-  });
-
-  it('redirects unauthenticated HTML app bookmarks to public login without redirecting APIs', async () => {
-    for (const path of ['/app', '/app/board']) {
-      for (const token of ['', `${COOKIE_NAME}=${'a'.repeat(64)}`]) {
-        const response = await request(
-          path,
-          { headers: { accept: 'text/html', cookie: token } },
-          false,
-        );
-
-        expect(response.status).toBe(303);
-
-        expect(response.headers.get('location')).toBe('/');
-
-        expect(response.headers.get('cache-control')).toBe('no-store');
-
-        expect(response.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
-
-        expect(await response.text()).toBe('');
-      }
-    }
-
-    const api = await request('/api/session', { headers: { accept: 'text/html' } }, false);
-
-    expect(api.status).toBe(401);
-
-    expect(api.headers.has('location')).toBe(false);
-
-    expect(
-      (await request('/app', { headers: { accept: 'text/html' }, method: 'POST' }, false)).status,
-    ).toBe(401);
-
-    expect((await request('/', { headers: { accept: 'text/html' } }, false)).status).toBe(200);
-  });
-
-  it('bounds bodies, requires same-origin JSON, and denies unexpected methods', async () => {
-    expect((await request('/api/setup', { method: 'DELETE' }, false)).status).toBe(405);
-
-    expect((await request('/api/setup', { method: 'POST' }, false)).status).toBe(415);
-
-    expect(
-      (
-        await request(
-          '/api/setup',
-          { headers: { 'content-type': 'application/json' }, method: 'POST' },
-          false,
-        )
-      ).status,
-    ).toBe(400);
-
-    for (const raw of ['{', '[]', 'null']) {
+    for (const table of ['accounts', 'sessions', 'account_tokens', 'login_limits']) {
       expect(
-        (
-          await request(
-            '/api/setup',
-            { body: raw, headers: { 'content-type': 'application/json' }, method: 'POST' },
-            false,
-          )
-        ).status,
-      ).toBe(400);
+        await db
+          .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+          .bind(table)
+          .first(),
+      ).toBeNull();
     }
 
-    const originHeaders: Record<string, string>[] = [
-      { origin: 'https://evil.example' },
-      { origin, 'sec-fetch-site': 'cross-site' },
-      {},
-    ];
-
-    for (const headers of originHeaders) {
-      const response = await worker.fetch(
-        new Request(`${origin}/api/setup`, {
-          ...payload({ password: 'long-password123', token: invitation }),
-          headers,
-          method: 'POST',
-        }),
-        { ASSETS: assets, DB: db },
-      );
-
-      expect(response.status).toBe(403);
-    }
-
-    expect(
-      (
-        await request(
-          '/api/setup',
-          {
-            body: 'x',
-            headers: { 'content-length': '70001', 'content-type': 'application/json' },
-            method: 'POST',
-          },
-          false,
-        )
-      ).status,
-    ).toBe(413);
-
-    expect(
-      (
-        await request(
-          '/api/setup',
-          {
-            body: 'x'.repeat(70001),
-            headers: { 'content-type': 'application/json' },
-            method: 'POST',
-          },
-          false,
-        )
-      ).status,
-    ).toBe(413);
+    await expect(
+      db.prepare('INSERT INTO user_preferences VALUES (?, ?, -1)').bind('bad', '{}').run(),
+    ).rejects.toThrow(/CHECK/);
   });
 
-  it('rejects invalid and expired invitations or invalid passwords', async () => {
-    for (const token of ['', 'unknown', 'a'.repeat(64), await issue('expired', false, start)]) {
-      expect(
-        (
-          await request(
-            '/api/setup',
-            { method: 'POST', ...payload({ password: 'long-password123', token }) },
-            false,
-          )
-        ).status,
-      ).toBe(400);
-    }
-
-    for (const password of ['', 1, 'x'.repeat(129)]) {
-      expect(
-        (
-          await request(
-            '/api/setup',
-            { method: 'POST', ...payload({ password, token: invitation }) },
-            false,
-          )
-        ).status,
-      ).toBe(400);
-    }
-  });
-
-  it('consumes an invitation once, stores a salted hash, and starts a secure session', async () => {
-    vi.spyOn(Date, 'now').mockReturnValue((start + 1000) * 1000);
-
-    const response = await request(
-      '/api/setup',
-      { method: 'POST', ...payload({ password: 'long-password123', token: invitation }) },
-      false,
-    );
-
-    expect(response.status).toBe(200);
-
-    const value = (await response.json()) as {
-      board: unknown;
-      csrf: string;
-      revision: number;
-      username: string;
-    };
-
-    expect(value.board).toEqual(defaultBoard());
-
-    expect(typeof value.csrf).toBe('string');
-
-    expect(value.revision).toBe(0);
-
-    expect(value.username).toBe('caregiver');
-
-    csrf = value.csrf;
-
-    cookie = response.headers.get('set-cookie')?.split(';')[0] ?? '';
-
-    expect(response.headers.get('set-cookie')).toContain(
-      'HttpOnly; SameSite=Strict; Secure; Max-Age=2592000',
-    );
-
-    expect(cookie).toMatch(new RegExp(`^${COOKIE_NAME}=[a-f0-9]{64}$`));
-
-    const account = await db
-      .prepare('SELECT password_hash FROM accounts WHERE username = ?')
-      .bind('caregiver')
-      .first<{ password_hash: string }>();
-
-    expect(account?.password_hash).toMatch(/^pbkdf2-sha256\$600000\$[a-f0-9]{64}\$[a-f0-9]{64}$/);
-
-    expect(account?.password_hash).not.toContain('long-password123');
-
-    const tokenRow = await db
-      .prepare('SELECT token_hash FROM sessions')
-      .first<{ token_hash: string }>();
-
-    expect(tokenRow?.token_hash).not.toBe(cookie.split('=')[1]);
-
-    expect(
-      (
-        await request(
-          '/api/setup',
-          { method: 'POST', ...payload({ password: 'long-password123', token: invitation }) },
-          false,
-        )
-      ).status,
-    ).toBe(400);
-  }, 30_000);
-
-  it('authenticates, gates assets, and never silently reorders persisted boards', async () => {
-    expect((await request('/app')).status).toBe(200);
-
-    const response = await request('/api/session');
-
-    expect(response.status).toBe(200);
-
-    expect(await response.json()).toEqual({
-      board: defaultBoard(),
-      csrf,
-      revision: 0,
-      username: 'caregiver',
-    });
-
-    expect((await request('/api/unknown')).status).toBe(404);
-
-    expect((await request('/api/session', { method: 'PUT', ...payload({}) })).status).toBe(404);
-  });
-
-  it('requires CSRF and validates board and revision, preserving optimistic concurrency', async () => {
-    expect((await request('/api/logout', { method: 'POST' })).status).toBe(403);
-
-    expect(
-      (
-        await request('/api/board', {
-          method: 'PUT',
-          ...payload({}),
-          headers: { 'content-type': 'application/json' },
-        })
-      ).status,
-    ).toBe(403);
-
-    for (const board of [
-      null,
-      {},
-      { ...defaultBoard(), slots: ['missing', 'missing', 'missing', 'missing'] },
-      {
-        ...defaultBoard(),
-        phrases: Array.from({ length: 257 }, (_, i) => ({ id: `id-${i}`, text: 'Teste' })),
-      },
-      {
-        ...defaultBoard(),
-        phrases: [{ id: 'x'.repeat(129), text: 'Teste' }],
-        slots: Array(4).fill('x'.repeat(129)),
-      },
-      'x'.repeat(64001),
+  it('fails closed without D1/Access configuration or a human signed assertion', async () => {
+    for (const environment of [
+      { ...config, ASSETS: assets },
+      { ASSETS: assets, DB: db },
+      { ...config, ACCESS_AUD: 'REPLACE_WITH_TEST_ACCESS_AUD', ASSETS: assets, DB: db },
     ]) {
-      expect(
-        (await request('/api/board', { method: 'PUT', ...payload({ board, revision: 0 }) })).status,
-      ).toBe(400);
+      expect((await worker.fetch(new Request(`${origin}/api/session`), environment)).status).toBe(
+        503,
+      );
     }
 
-    for (const revision of [-1, 0.2, '0', Number.MAX_SAFE_INTEGER]) {
-      expect(
-        (
-          await request('/api/board', {
-            method: 'PUT',
-            ...payload({ board: defaultBoard(), revision }),
-          })
-        ).status,
-      ).toBe(400);
-    }
-
-    const board = defaultBoard();
-
-    board.phrases.reverse();
-
-    const saves = await Promise.all(
-      Array.from({ length: 2 }, () =>
-        request('/api/board', { method: 'PUT', ...payload({ board, revision: 0 }) }),
-      ),
-    );
-
-    expect(saves.map((response) => response.status).sort()).toEqual([200, 409]);
-
-    expect(await saves.find((response) => response.status === 200)?.json()).toEqual({
-      board,
-      revision: 1,
-    });
-
-    expect(await (await request('/api/session')).json()).toEqual({
-      board,
-      csrf,
-      revision: 1,
-      username: 'caregiver',
-    });
-  });
-
-  it('rotates at 24 hours with concurrent requests and preserves absolute expiry', async () => {
-    const old = cookie;
-
-    vi.spyOn(Date, 'now').mockReturnValue((start + 1000 + RENEW_SECONDS) * 1000);
-
-    const responses = await Promise.all([request('/api/session'), request('/api/session')]);
-
-    expect(responses.map((response) => response.status)).toEqual([200, 200]);
-
-    const cookies = responses.map((response) => response.headers.get('set-cookie')?.split(';')[0]);
-
-    expect(cookies[0]).toBe(cookies[1]);
-
-    expect(cookies[0]).not.toBe(old);
-
-    cookie = cookies[0] ?? '';
-
-    const grace = await request('/api/session', { headers: { cookie: old } }, false);
-
-    expect(grace.headers.get('set-cookie')?.split(';')[0]).toBe(cookie);
-
-    vi.spyOn(Date, 'now').mockReturnValue((start + 1000 + RENEW_SECONDS + 61) * 1000);
-
-    expect((await request('/api/session', { headers: { cookie: old } }, false)).status).toBe(401);
-
-    const row = await db.prepare('SELECT expires_at FROM sessions').first<{ expires_at: number }>();
-
-    expect(row?.expires_at).toBe(start + 1000 + SESSION_SECONDS);
-  });
-
-  it('logout revokes the session, including token grace', async () => {
-    const response = await request('/api/logout', {
-      headers: { 'x-csrf-token': csrf },
-      method: 'POST',
-    });
-
-    expect(response.status).toBe(204);
-
-    expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
-
-    expect((await request('/api/session')).status).toBe(401);
-
-    expect((await request('/app', { headers: { accept: 'text/html' } })).status).toBe(303);
-  });
-
-  it('login has indistinguishable credential failures and database-backed rate limiting', async () => {
-    vi.spyOn(Date, 'now').mockReturnValue((start + 200_000) * 1000);
-
-    const errors = [];
-
-    for (const username of ['missing', 'caregiver']) {
+    for (const jwt of [
+      '',
+      'forged',
+      await sign({ exp: now - 1 }),
+      await sign({ common_name: 'service' }),
+      await sign({ email: undefined }),
+      await sign({ aud: 'b'.repeat(64) }),
+    ]) {
       const response = await request(
-        '/api/login',
-        { method: 'POST', ...payload({ password: 'wrong-password123', username }) },
-        false,
+        '/api/session',
+        {
+          headers: {
+            accept: 'text/html',
+            'cf-access-authenticated-user-email': 'caregiver@example.com',
+            cookie: '__Host-reader=old-cookie',
+          },
+        },
+        jwt,
       );
 
       expect(response.status).toBe(401);
 
-      errors.push(await response.json());
+      expect(response.headers.has('location')).toBe(false);
+
+      expect(response.headers.get('content-type')).toContain('application/json');
+
+      expect(Object.keys((await response.json()) as Record<string, unknown>)).toEqual(['error']);
     }
-
-    expect(errors[0]).toEqual(errors[1]);
-
-    for (const input of [
-      { password: 'long-password123', username: '!' },
-      { password: 'short', username: 'caregiver' },
-    ]) {
-      expect(
-        (await request('/api/login', { method: 'POST', ...payload(input) }, false)).status,
-      ).toBe(401);
-    }
-
-    const response = await request(
-      '/api/login',
-      { method: 'POST', ...payload({ password: 'long-password123', username: 'CAREGIVER' }) },
-      false,
-    );
-
-    expect(response.status).toBe(200);
-
-    cookie = response.headers.get('set-cookie')?.split(';')[0] ?? '';
-
-    const value = (await response.json()) as { csrf: string };
-
-    csrf = value.csrf;
-
-    await db
-      .prepare(
-        'INSERT INTO login_limits (key, attempts, expires_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET attempts = excluded.attempts, expires_at = excluded.expires_at',
-      )
-      .bind(await digest('ip:local'), 10, start + 201_000)
-      .run();
 
     expect(
-      (
-        await request(
-          '/api/login',
-          { method: 'POST', ...payload({ password: 'long-password123', username: 'caregiver' }) },
-          false,
-        )
-      ).status,
-    ).toBe(429);
-  }, 30_000);
-
-  it('reset is one use under concurrency and revokes every earlier session without losing the board', async () => {
-    const old = cookie;
-
-    vi.spyOn(Date, 'now').mockReturnValue((start + 300_000) * 1000);
-
-    const token = await issue('caregiver', true, start + 301_000);
-    const responses = await Promise.all([
-      request(
-        '/api/setup',
-        { method: 'POST', ...payload({ password: 'replacement-password123', token }) },
-        false,
-      ),
-      request(
-        '/api/setup',
-        { method: 'POST', ...payload({ password: 'other-password123', token }) },
-        false,
-      ),
-    ]);
-
-    expect(responses.map((response) => response.status).sort()).toEqual([200, 400]);
-
-    expect((await request('/api/session', { headers: { cookie: old } }, false)).status).toBe(401);
-
-    const success = responses.find((response) => response.status === 200);
-
-    cookie = success?.headers.get('set-cookie')?.split(';')[0] ?? '';
-
-    const value = (await success?.json()) as { revision: number } | undefined;
-
-    expect(value?.revision).toBe(1);
-
-    vi.spyOn(Date, 'now').mockReturnValue((start + 300_000 + SESSION_SECONDS) * 1000);
-
-    expect((await request('/api/session')).status).toBe(401);
-
-    expect((await request('/app/board', { headers: { accept: 'text/html' } })).status).toBe(303);
-  }, 30_000);
-
-  it('permits explicit loopback HTTP cookies only, and returns safe infrastructure errors', async () => {
-    vi.spyOn(Date, 'now').mockReturnValue((start + 400_000) * 1000);
-
-    const token = await issue('localuser', false, start + 401_000);
-    const local = await worker.fetch(
-      new Request('http://localhost/api/setup', {
-        body: JSON.stringify({ password: 'local-password123', token }),
-        headers: { 'content-type': 'application/json', origin: 'http://localhost' },
-        method: 'POST',
-      }),
-      { ASSETS: assets, DB: db },
-    );
-
-    expect(local.status).toBe(200);
-
-    expect(local.headers.get('set-cookie')).toMatch(/^reader-local=/);
-
-    expect(local.headers.get('set-cookie')).not.toContain('Secure');
-
-    const localCookie = local.headers.get('set-cookie')?.split(';')[0] ?? '';
+      await db.prepare('SELECT access_subject FROM user_preferences LIMIT 1').first(),
+    ).toBeNull();
 
     expect(
       (
         await worker.fetch(
-          new Request('http://localhost/api/session', { headers: { cookie: localCookie } }),
-          { ASSETS: assets, DB: db },
+          new Request('http://reader.example/api/session', {
+            headers: { 'cf-access-jwt-assertion': assertion },
+          }),
+          { ...config, ASSETS: assets, DB: db },
         )
       ).status,
-    ).toBe(200);
+    ).toBe(403);
+  });
 
-    const broken: Database = {
-      batch: () => Promise.reject(new Error('private infrastructure details')),
-      prepare: () => {
-        throw new Error('private database details');
-      },
-    };
-    const response = await worker.fetch(
-      new Request(`${origin}/api/session`, {
-        headers: { cookie: localCookie.replace('reader-local', COOKIE_NAME) },
-      }),
-      { ASSETS: assets, DB: broken },
-    );
+  it('initializes once per Access subject, preserves API shape and survives JWT rotation', async () => {
+    const sessions = await Promise.all([request('/api/session'), request('/api/session')]);
 
-    expect(response.status).toBe(503);
+    for (const response of sessions) {
+      expect(response.status).toBe(200);
 
-    expect(await response.text()).not.toContain('private');
-  }, 30_000);
+      expect(response.headers.has('set-cookie')).toBe(false);
 
-  it('logs only allowlisted diagnostics for unexpected failures without leaking request or error data', async () => {
-    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const cases = [
-      {
-        category: 'password-kdf-limit',
-        error: new DOMException(
-          'PBKDF2 iterations above 100000 are unsupported; secret-token',
-          'NotSupportedError',
-        ),
-        errorType: 'NotSupportedError',
-      },
-      {
-        category: 'database-operation',
-        error: new Error('D1_ERROR: private SQL and phrase'),
-        errorType: 'Error',
-      },
-      {
-        category: 'cryptography-operation',
-        error: new DOMException('deriveBits failed with private-password', 'OperationError'),
-        errorType: 'OperationError',
-      },
-      {
-        category: 'unexpected-operation',
-        error: new Error('private database details'),
-        errorType: 'Error',
-      },
-    ];
-
-    for (const example of cases) {
-      const broken: Database = {
-        batch: () => Promise.reject(example.error),
-        prepare: () => {
-          throw example.error;
-        },
+      const session = (await response.json()) as {
+        board: unknown;
+        csrf: string;
+        revision: number;
+        username: string;
       };
-      const response = await worker.fetch(
-        new Request(`${origin}/api/setup?private-token`, {
-          body: JSON.stringify({ password: 'private-password', token: 'private-token' }),
-          headers: { 'content-type': 'application/json', origin },
-          method: 'POST',
-        }),
-        { ASSETS: assets, DB: broken },
-      );
 
-      expect(response.status).toBe(503);
-
-      expect(await response.json()).toEqual({
-        error: 'Não foi possível concluir o pedido. Tente novamente.',
+      expect(session).toEqual({
+        board: defaultBoard(),
+        csrf: session.csrf,
+        revision: 0,
+        username: 'caregiver@example.com',
       });
 
-      expect(log).toHaveBeenLastCalledWith('Account request failed', {
-        category: example.category,
-        errorType: example.errorType,
-        operation: '/api/setup',
-      });
+      expect(session.csrf).toMatch(/^[a-f0-9]{64}$/);
+
+      csrf = session.csrf;
     }
 
-    const custom = new Error('private custom exception');
+    const renewed = await request('/api/session', {}, await sign({ exp: now + 7200 }));
 
-    custom.name = 'secret-name';
+    expect(await renewed.json()).toHaveProperty('csrf', csrf);
 
-    const broken: Database = {
-      batch: () => Promise.reject(custom),
-      prepare: () => {
-        throw custom;
-      },
-    };
-
-    await worker.fetch(
-      new Request(`${origin}/api/private-user?secret-token`, {
-        headers: { cookie: `${COOKIE_NAME}=${'a'.repeat(64)}` },
+    const local = await worker.fetch(
+      new Request('http://localhost:8787/api/session', {
+        headers: { 'cf-access-jwt-assertion': assertion },
       }),
-      { ASSETS: assets, DB: broken },
+      { ...config, ASSETS: assets, DB: db },
     );
 
-    expect(log).toHaveBeenLastCalledWith('Account request failed', {
+    expect(local.status).toBe(200);
+
+    expect(
+      (
+        await worker.fetch(new Request('http://localhost:8787/api/session'), {
+          ...config,
+          ASSETS: assets,
+          DB: db,
+        })
+      ).status,
+    ).toBe(401);
+  });
+
+  it('has no custom login/setup/logout APIs and only accepts the documented methods', async () => {
+    for (const path of ['/api/login', '/api/setup', '/api/logout', '/api', '/api/unknown']) {
+      expect((await request(path, { method: 'POST' })).status).toBe(404);
+    }
+
+    for (const [path, method] of [
+      ['/api/session', 'POST'],
+      ['/api/session', 'DELETE'],
+      ['/api/board', 'GET'],
+      ['/api/board', 'POST'],
+    ]) {
+      expect((await request(path ?? '', { method })).status).toBe(405);
+    }
+  });
+
+  it('requires exact same-origin, JSON and stable subject-bound CSRF for writes', async () => {
+    const invalidHeaders: Record<string, string>[] = [
+      { 'content-type': 'application/json', 'x-csrf-token': csrf },
+      {
+        'content-type': 'application/json',
+        origin: 'https://attacker.example',
+        'x-csrf-token': csrf,
+      },
+      {
+        'content-type': 'application/json',
+        origin,
+        'sec-fetch-site': 'cross-site',
+        'x-csrf-token': csrf,
+      },
+      { 'content-type': 'application/json', origin },
+      { 'content-type': 'application/json', origin, 'x-csrf-token': 'wrong' },
+    ];
+
+    for (const headers of invalidHeaders) {
+      expect(
+        (
+          await request('/api/board', {
+            ...payload({ board: defaultBoard(), revision: 0 }),
+            headers,
+          })
+        ).status,
+      ).toBe(403);
+    }
+
+    expect(
+      (
+        await request('/api/board', {
+          ...payload({}),
+          headers: { origin, 'x-csrf-token': csrf },
+        })
+      ).status,
+    ).toBe(415);
+
+    expect(
+      (
+        await request('/api/board', {
+          ...payload({}),
+          body: null,
+        })
+      ).status,
+    ).toBe(400);
+
+    for (const body of ['{', '[]', 'null']) {
+      expect((await request('/api/board', { ...payload({}), body })).status).toBe(400);
+    }
+
+    expect(
+      (
+        await request('/api/board', {
+          ...payload({}),
+          body: 'a'.repeat(70_001),
+        })
+      ).status,
+    ).toBe(413);
+
+    expect(
+      (
+        await request('/api/board', {
+          ...payload({}),
+          headers: {
+            'content-length': '70001',
+            'content-type': 'application/json',
+            origin,
+            'x-csrf-token': csrf,
+          },
+        })
+      ).status,
+    ).toBe(413);
+
+    for (const revision of [-1, 0.5, '0', Number.MAX_SAFE_INTEGER, null]) {
+      expect(
+        (await request('/api/board', payload({ board: defaultBoard(), revision }))).status,
+      ).toBe(400);
+    }
+
+    expect((await request('/api/board', payload({ board: {}, revision: 0 }))).status).toBe(400);
+  });
+
+  it('persists only successful revisions and isolates subjects even with matching emails', async () => {
+    const board = defaultBoard();
+
+    board.slots.reverse();
+
+    const results = await Promise.all([
+      request('/api/board', payload({ board, revision: 0 })),
+      request('/api/board', payload({ board, revision: 0 })),
+    ]);
+
+    expect(results.map((response) => response.status).sort()).toEqual([200, 409]);
+
+    const saved = await request('/api/session');
+
+    expect(await saved.json()).toEqual({
+      board,
+      csrf,
+      revision: 1,
+      username: 'caregiver@example.com',
+    });
+
+    const other = await sign({ sub: 'other-subject' });
+    const otherSession = await request('/api/session', {}, other);
+    const otherData = (await otherSession.json()) as { csrf: string };
+
+    expect(otherData).toHaveProperty('board', defaultBoard());
+
+    expect(otherData.csrf).not.toBe(csrf);
+
+    expect((await request('/api/board', payload({ board, revision: 1 }), other)).status).toBe(403);
+
+    const changedEmail = await request(
+      '/api/session',
+      {},
+      await sign({ email: 'renamed@example.com' }),
+    );
+
+    expect(await changedEmail.json()).toEqual({
+      board,
+      csrf,
+      revision: 1,
+      username: 'renamed@example.com',
+    });
+
+    const renewed = await sign({ exp: now + 7200 });
+
+    expect((await request('/api/board', payload({ board, revision: 1 }), renewed)).status).toBe(
+      200,
+    );
+  });
+
+  it('returns generic infrastructure failures and logs only privacy-safe categories', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const secret = 'private-token-username-phrase-query';
+    const badDatabase: Database = {
+      prepare: () => {
+        throw new Error(`D1_ERROR ${secret}`);
+      },
+    };
+    const databaseResponse = await worker.fetch(
+      new Request(`${origin}/api/session?${secret}`, {
+        headers: { 'cf-access-jwt-assertion': assertion },
+      }),
+      { ...config, ASSETS: assets, DB: badDatabase },
+    );
+
+    expect(databaseResponse.status).toBe(503);
+
+    expect(await databaseResponse.text()).not.toContain(secret);
+
+    expect(log).toHaveBeenLastCalledWith('Access request failed', {
+      category: 'database-operation',
+      errorType: 'Error',
+      operation: '/api/session',
+    });
+
+    vi.stubGlobal('fetch', vi.fn<typeof globalThis.fetch>().mockRejectedValue(new Error(secret)));
+
+    const brokenKeys = { ...config, ACCESS_TEAM_DOMAIN: 'broken-worker.cloudflareaccess.com' };
+    const keyResponse = await worker.fetch(
+      new Request(`${origin}/api/session`, {
+        headers: {
+          'cf-access-jwt-assertion': await sign({
+            iss: `https://${brokenKeys.ACCESS_TEAM_DOMAIN}`,
+          }),
+        },
+      }),
+      { ...brokenKeys, ASSETS: assets, DB: db },
+    );
+
+    expect(keyResponse.status).toBe(503);
+
+    expect(log).toHaveBeenLastCalledWith('Access request failed', {
+      category: 'access-key-service',
+      errorType: 'Error',
+      operation: '/api/session',
+    });
+
+    const customError = new Error(secret);
+
+    customError.name = secret;
+
+    assets.fetch.mockRejectedValue(customError);
+
+    const assetResponse = await request(`/unknown?${secret}`);
+
+    expect(assetResponse.status).toBe(503);
+
+    expect(log).toHaveBeenLastCalledWith('Access request failed', {
       category: 'unexpected-operation',
-      errorType: 'UnknownError',
+      errorType: 'other',
       operation: 'other',
     });
 
-    expect(JSON.stringify(log.mock.calls)).not.toMatch(/private|secret|password"|token"|phrase/);
+    assets.fetch.mockRejectedValue(secret);
 
-    log.mockClear();
+    expect((await request('/')).status).toBe(503);
 
-    await worker.fetch(new Request(`${origin}/api/session`), { ASSETS: assets });
-
-    expect(log).not.toHaveBeenCalled();
+    expect(JSON.stringify(log.mock.calls)).not.toContain(secret);
   });
 });

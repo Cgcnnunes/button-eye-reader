@@ -1,5 +1,5 @@
 import './style.css';
-import { type AccountSession, getSession, login, logout, saveBoard, setup } from './account-client';
+import { type AccountSession, getSession, saveBoard } from './account-client';
 import { Speaker } from './speech';
 import {
   addPhrase,
@@ -52,7 +52,7 @@ function mountBoard(): void {
           <button id="eye-help" type="button" class="helper" aria-expanded="false" aria-controls="eye-help-text"><strong>Ajuda com o Rastreamento dos Olhos</strong><span>Como ativar ou pausar no iPad</span></button>
           <button id="sort-slots" type="button" class="helper"><strong>Ordenar os quatro botões</strong><span>Escolher a posição das frases</span></button>
           <button id="sort-catalogue" type="button" class="helper"><strong>Ordenar o catálogo</strong><span>Organizar as frases guardadas</span></button>
-          <button id="logout" type="button" class="helper"><strong>Terminar sessão</strong><span>Sair desta conta neste dispositivo</span></button>
+          <a id="logout" href="/cdn-cgi/access/logout" class="helper"><strong>Terminar sessão</strong><span>Sair do acesso neste dispositivo</span></a>
         </div>
         <p id="eye-help-text" hidden>No iPad: Ajustes -> Acessibilidade -> Rastreamento dos Olhos. Se disponível, configure o Atalho de acessibilidade para acesso pelo botão superior. Esta aplicação não ativa nem desativa o rastreamento.</p>
       </section>
@@ -480,8 +480,20 @@ function wireControls(): void {
     });
   }
 
-  element('logout').addEventListener('click', () => {
-    void signOut();
+  element('logout').addEventListener('click', (event) => {
+    if (saving) {
+      event.preventDefault();
+
+      return;
+    }
+
+    speaker.stop();
+
+    account = null;
+
+    board = defaultBoard();
+
+    showHome('A terminar a sessão no Cloudflare Access…');
   });
 }
 
@@ -570,107 +582,25 @@ function renderOrder(): void {
 }
 
 function showHome(message = ''): void {
-  app.innerHTML = `<div class="login-shell"><img src="/logo.svg" alt="O meu olhar" width="120" height="84"><h1>O meu olhar</h1><p>Comunicar, uma frase de cada vez.</p><form id="login-form"><label for="username">Nome de utilizador</label><input id="username" autocomplete="username" required maxlength="64"><label for="password">Palavra-passe</label><input id="password" type="password" autocomplete="current-password" required minlength="12" maxlength="128"><button type="submit" class="control-button">Entrar</button></form><p id="notice" role="alert"></p><p>Conta criada por convite. Para recuperar o acesso, contacte quem administra a aplicação.</p><small>EXPERIMENTAL · v${__APP_VERSION__}</small></div>`;
-
-  const fragment = new URLSearchParams(location.hash.slice(1));
-  const token = fragment.get('setup');
-
-  if (token) {
-    history.replaceState(null, '', '/');
-
-    element('username', HTMLInputElement).required = false;
-
-    element('username').hidden = true;
-
-    app.querySelector('label[for="username"]')?.remove();
-
-    element('password', HTMLInputElement).autocomplete = 'new-password';
-
-    const submit = app.querySelector('button');
-
-    if (submit) submit.textContent = 'Definir palavra-passe';
-  }
+  app.innerHTML = `<div class="login-shell"><img src="/logo.svg" alt="O meu olhar" width="120" height="84"><h1>O meu olhar</h1><p>Comunicar, uma frase de cada vez.</p><a id="access-login" href="/app" class="control-button">Entrar</a><p id="notice" role="alert"></p><p>Use o seu e-mail autorizado no Cloudflare Access. Para pedir acesso, contacte quem administra a aplicação.</p><small>EXPERIMENTAL · v${__APP_VERSION__}</small></div>`;
 
   notify(message);
-
-  element('login-form').addEventListener('submit', (event) => {
-    event.preventDefault();
-
-    void signIn();
-  });
-
-  async function signIn(): Promise<void> {
-    const form = element('login-form');
-
-    form.inert = true;
-
-    try {
-      const password = element('password', HTMLInputElement).value;
-
-      account = token
-        ? await setup(token, password)
-        : await login(element('username', HTMLInputElement).value, password);
-
-      board = account.board;
-
-      screen = 'board';
-
-      page = 0;
-
-      selected = null;
-
-      history.replaceState(null, '', '/app');
-
-      mountBoard();
-    } catch (error) {
-      element('password', HTMLInputElement).value = '';
-
-      notify(errorMessage(error));
-
-      form.inert = false;
-    }
-  }
-}
-
-async function signOut(): Promise<void> {
-  if (!account || saving) return;
-
-  element('shell').inert = true;
-
-  try {
-    await logout(account.csrf);
-
-    speaker.stop();
-
-    account = null;
-
-    board = defaultBoard();
-
-    history.replaceState(null, '', '/');
-
-    showHome();
-  } catch (error) {
-    element('shell').inert = false;
-
-    notify(`Não foi possível terminar a sessão. ${errorMessage(error)}`);
-  }
 }
 
 try {
   app.innerHTML = '<p role="status">A carregar a sessão…</p>';
 
-  if (location.hash.startsWith('#setup=')) showHome();
-  else {
-    account = await getSession();
+  if (location.hash) history.replaceState(null, '', location.pathname);
 
-    if (account) {
-      board = account.board;
+  account = await getSession();
 
-      history.replaceState(null, '', '/app');
+  if (account) {
+    board = account.board;
 
-      mountBoard();
-    } else showHome();
-  }
+    history.replaceState(null, '', '/app');
+
+    mountBoard();
+  } else showHome();
 } catch (error) {
   showHome(`Não foi possível carregar a sessão. ${errorMessage(error)}`);
 }

@@ -1,9 +1,11 @@
+import { parse, type ParseError } from 'jsonc-parser';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { DeploymentProof } from './deployment-policy.ts';
+import { validAccessConfiguration } from '../src/access.ts';
 import {
   assertEvidence,
   assertMergedPullRequest,
@@ -26,6 +28,40 @@ export function required(name: string): string {
   }
 
   return text(process.env[name]);
+}
+
+export function accessConfiguration(environment: string): void {
+  if (environment !== 'test' && environment !== 'production') {
+    throw new Error('Choose test or production for Access configuration validation.');
+  }
+
+  const errors: ParseError[] = [];
+  const config = object(
+    parse(readFileSync('wrangler.jsonc', 'utf8'), errors, { allowTrailingComma: true }) as unknown,
+  );
+
+  if (errors.length) throw new Error('Wrangler configuration contains invalid JSONC.');
+
+  const environments = object(config.env);
+  const vars = object(object(environments[environment]).vars);
+  const team = text(vars.ACCESS_TEAM_DOMAIN);
+  const audience = text(vars.ACCESS_AUD);
+
+  if (!validAccessConfiguration({ ACCESS_AUD: audience, ACCESS_TEAM_DOMAIN: team })) {
+    throw new Error(
+      'Configure the real Access team domain and application audience before database migration.',
+    );
+  }
+
+  const other = object(object(environments[environment === 'test' ? 'production' : 'test']).vars);
+
+  if (other.ACCESS_AUD === audience) {
+    throw new Error('TEST and PROD must use distinct Access application audiences.');
+  }
+
+  console.log(
+    `Access configuration format validated for ${environment}; confirm dashboard policies and back up D1 before migration.`,
+  );
 }
 
 function repositoryUrl(): string {
@@ -195,20 +231,15 @@ export async function smoke(environment: string): Promise<void> {
 
   const accessClientId = process.env.CLOUDFLARE_ACCESS_CLIENT_ID;
   const accessClientSecret = process.env.CLOUDFLARE_ACCESS_CLIENT_SECRET;
-  let headers: Record<string, string> | undefined;
 
-  if (environment === 'test' && (accessClientId || accessClientSecret)) {
-    if (!accessClientId || !accessClientSecret) {
-      throw new Error(
-        'Configure both Cloudflare Access service token secrets or leave both unset.',
-      );
-    }
-
-    headers = {
-      'CF-Access-Client-Id': accessClientId,
-      'CF-Access-Client-Secret': accessClientSecret,
-    };
+  if (!accessClientId || !accessClientSecret) {
+    throw new Error('Configure both Cloudflare Access service token secrets for this environment.');
   }
+
+  const headers: Record<string, string> = {
+    'CF-Access-Client-Id': accessClientId,
+    'CF-Access-Client-Secret': accessClientSecret,
+  };
 
   async function request(path: string, timeout: number, anonymousApi = false): Promise<Response> {
     const response = await fetch(`${url}${path}`, {
@@ -224,13 +255,7 @@ export async function smoke(environment: string): Promise<void> {
       response.status === 403
     ) {
       throw new Error(
-        `Deployment smoke request rejected (${environment}, ${response.status}). ${
-          environment === 'test'
-            ? headers
-              ? 'Check Cloudflare Access service token secrets and the Service Auth policy.'
-              : 'Check the TEST URL and any unexpected Cloudflare Access policy.'
-            : 'PROD must be publicly accessible without Cloudflare Access or redirects.'
-        }`,
+        `Deployment smoke request rejected (${environment}, ${response.status}). Check Cloudflare Access service token secrets and the Service Auth policy for this environment.`,
       );
     }
 
@@ -317,7 +342,9 @@ export async function promote(): Promise<void> {
 async function run(): Promise<void> {
   const command = process.argv[2];
 
-  if (command === 'validate') {
+  if (command === 'access') {
+    accessConfiguration(text(process.argv[3]));
+  } else if (command === 'validate') {
     const { proof } = await validate();
 
     appendFileSync(

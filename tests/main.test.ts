@@ -6,11 +6,8 @@ import { type Board, defaultBoard, STORAGE_KEY } from '../src/store';
 const mocks = vi.hoisted(() => ({
   changed: vi.fn<(busy: boolean) => void>(),
   getSession: vi.fn(),
-  login: vi.fn(),
-  logout: vi.fn(),
   notify: vi.fn<(message: string) => void>(),
   saveBoard: vi.fn(),
-  setup: vi.fn(),
   speak: vi.fn<(text: string) => void>(),
   speaking: false,
   stop: vi.fn<() => void>(),
@@ -18,10 +15,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../src/account-client', () => ({
   getSession: mocks.getSession,
-  login: mocks.login,
-  logout: mocks.logout,
   saveBoard: mocks.saveBoard,
-  setup: mocks.setup,
 }));
 
 vi.mock('../src/speech', () => ({
@@ -104,8 +98,6 @@ describe('standard accessible phrase board', () => {
     mocks.saveBoard.mockImplementation((board: Board, revision: number) =>
       Promise.resolve({ board, revision: revision + 1 }),
     );
-
-    mocks.logout.mockResolvedValue(undefined);
 
     document.body.innerHTML = '<div id="app"></div>';
 
@@ -514,7 +506,7 @@ describe('standard accessible phrase board', () => {
 
     expect(text('notice')).toContain('Offline');
 
-    expect(document.querySelector('#login-form')).not.toBeNull();
+    expect(document.querySelector('#access-login')).not.toBeNull();
   });
 
   it('reports save conflicts without claiming a successful replacement or addition', async () => {
@@ -649,122 +641,52 @@ describe('standard accessible phrase board', () => {
     expect(text('notice')).toContain('tipo incorreto');
   });
 
-  it('shows the logo only while logged out, signs in and revokes the session on logout', async () => {
+  it('shows an Access entry link and logo for an anonymous session, never password fields', async () => {
     mocks.getSession.mockResolvedValue(null);
-
-    mocks.login.mockResolvedValue({
-      board: defaultBoard(),
-      csrf: 'csrf',
-      revision: 4,
-      username: 'helper',
-    });
 
     await load();
 
     expect(document.querySelector('img')?.getAttribute('src')).toBe('/logo.svg');
 
-    const username = document.querySelector<HTMLInputElement>('#username');
-    const password = document.querySelector<HTMLInputElement>('#password');
+    expect(document.querySelector('#access-login')?.getAttribute('href')).toBe('/app');
 
-    if (!username || !password) throw new Error('Missing login inputs');
+    expect(document.querySelector('input,form')).toBeNull();
 
-    username.value = 'helper';
-
-    password.value = 'strong-password';
-
-    document.querySelector('form')?.dispatchEvent(new Event('submit', { cancelable: true }));
-
-    await vi.waitFor(() => {
-      expect(document.querySelectorAll('.phrase-button')).toHaveLength(4);
-    });
-
-    expect(mocks.login).toHaveBeenCalledWith('helper', 'strong-password');
-
-    expect(location.pathname).toBe('/app');
-
-    expect(document.querySelector('img')).toBeNull();
-
-    button('logout').click();
-
-    await vi.waitFor(() => {
-      expect(document.querySelector('#login-form')).not.toBeNull();
-    });
-
-    expect(mocks.logout).toHaveBeenCalledWith('csrf');
-
-    expect(location.pathname).toBe('/');
+    expect(document.querySelectorAll('.phrase-button')).toHaveLength(0);
 
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
   });
 
-  it('surfaces login and logout failures without falsely changing authentication', async () => {
-    mocks.getSession.mockResolvedValue(null);
-
-    mocks.login.mockRejectedValue('Unexpected failure');
-
+  it('clears private board and speech before navigating to managed Access logout', async () => {
     await load();
 
-    document.querySelector('form')?.dispatchEvent(new Event('submit', { cancelable: true }));
+    const link = document.querySelector<HTMLAnchorElement>('#logout');
 
-    await vi.waitFor(() => {
-      expect(text('notice')).toContain('erro inesperado');
-    });
+    if (!link) throw new Error('Missing logout link');
 
-    mocks.login.mockResolvedValue({
-      board: defaultBoard(),
-      csrf: 'csrf',
-      revision: 0,
-      username: 'helper',
-    });
+    expect(link.getAttribute('href')).toBe('/cdn-cgi/access/logout');
 
-    document.querySelector('form')?.dispatchEvent(new Event('submit', { cancelable: true }));
+    link.dispatchEvent(new Event('click', { cancelable: true }));
 
-    await vi.waitFor(() => {
-      expect(document.querySelectorAll('.phrase-button')).toHaveLength(4);
-    });
+    expect(mocks.stop).toHaveBeenCalled();
 
-    mocks.logout.mockRejectedValue(new Error('Offline'));
+    expect(document.querySelectorAll('.phrase-button')).toHaveLength(0);
 
-    button('logout').click();
-
-    await vi.waitFor(() => {
-      expect(text('notice')).toContain('terminar a sessão');
-    });
-
-    expect(document.querySelectorAll('.phrase-button')).toHaveLength(4);
+    expect(text('notice')).toContain('Cloudflare Access');
   });
 
-  it('consumes invitation/reset fragments without sending them in subsequent URLs', async () => {
+  it('removes obsolete invitation fragments and uses only the Access session', async () => {
     history.replaceState(null, '', '/#setup=single-use-token');
-
-    mocks.setup.mockResolvedValue({
-      board: defaultBoard(),
-      csrf: 'csrf',
-      revision: 0,
-      username: 'helper',
-    });
 
     await load();
 
-    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(mocks.getSession).toHaveBeenCalledTimes(1);
 
     expect(location.hash).toBe('');
 
-    expect(document.querySelector<HTMLInputElement>('#username')?.hidden).toBe(true);
+    expect(document.querySelectorAll('.phrase-button')).toHaveLength(4);
 
-    const password = document.querySelector<HTMLInputElement>('#password');
-
-    if (!password) throw new Error('Missing password');
-
-    password.value = 'strong-password';
-
-    document.querySelector('form')?.dispatchEvent(new Event('submit', { cancelable: true }));
-
-    await vi.waitFor(() => {
-      expect(document.querySelectorAll('.phrase-button')).toHaveLength(4);
-    });
-
-    expect(mocks.setup).toHaveBeenCalledWith('single-use-token', 'strong-password');
+    expect(document.querySelector('input[type=password]')).toBeNull();
   });
 
   it('lets the caregiver sort slots and catalogue independently and insert a phrase at a chosen position', async () => {
@@ -851,11 +773,17 @@ describe('standard accessible phrase board', () => {
 
     button('order-down').click();
 
-    button('logout').click();
+    const logout = document.getElementById('logout');
+
+    if (!logout) throw new Error('Missing logout link');
+
+    const event = new Event('click', { cancelable: true });
+
+    logout.dispatchEvent(event);
 
     expect(mocks.saveBoard).toHaveBeenCalledTimes(1);
 
-    expect(mocks.logout).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(true);
 
     expect(document.getElementById('shell')?.inert).toBe(true);
 

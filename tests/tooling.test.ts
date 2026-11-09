@@ -41,7 +41,9 @@ describe('mandatory lint and hook configuration', () => {
     const manifest = readFileSync(new URL('../package.json', import.meta.url), 'utf8');
     const headers = readFileSync(new URL('../public/_headers', import.meta.url), 'utf8');
 
-    expect(manifest).not.toMatch(/mediapipe|jose|prepare-assets|postinstall/);
+    expect(manifest).not.toMatch(/mediapipe|prepare-assets|postinstall/);
+
+    expect(manifest).toContain('"jose"');
 
     expect(headers).toContain('camera=()');
 
@@ -62,7 +64,25 @@ describe('mandatory lint and hook configuration', () => {
       expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     }
 
-    expect(config).not.toContain('REPLACE_WITH_');
+    expect(ids.join(' ')).not.toContain('REPLACE_WITH_');
+  });
+
+  it('requires Access at both origins without restoring custom password tooling', () => {
+    const config = readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
+
+    for (const environment of ['production', 'test']) {
+      const section = config.split(`"${environment}": {`)[1];
+
+      expect(section).toContain('"ACCESS_TEAM_DOMAIN"');
+
+      expect(section).toContain('"ACCESS_AUD"');
+    }
+
+    expect(config.match(/"run_worker_first": true/g)).toHaveLength(3);
+
+    expect(readdirSync(new URL('../scripts/', import.meta.url))).not.toContain('accounts.ts');
+
+    expect(readdirSync(new URL('../src/', import.meta.url))).not.toContain('accounts.ts');
   });
 
   it('cancels superseded PR validation while queueing deployments independently', () => {
@@ -146,6 +166,10 @@ describe('mandatory lint and hook configuration', () => {
 
       expect(workflow).toContain(command);
 
+      expect(workflow.indexOf(`node scripts/deployment.ts access ${environment}`)).toBeLessThan(
+        workflow.indexOf(command),
+      );
+
       expect(workflow.indexOf(command)).toBeLessThan(
         workflow.indexOf(`- name: Deploy to ${label}`),
       );
@@ -180,7 +204,7 @@ export function probe(value: any) {
     }
   }, 20000);
 
-  it('exposes Access credentials only to TEST smoke checks, never builds or PROD', () => {
+  it('exposes separate environment Access credentials only to smoke checks, never builds', () => {
     const test = readFileSync(
       new URL('../.github/workflows/deploy-to-test.yml', import.meta.url),
       'utf8',
@@ -193,18 +217,25 @@ export function probe(value: any) {
       new URL('../.github/workflows/execute-pr-validation.yml', import.meta.url),
       'utf8',
     );
-    const smokeStep = test
-      .split('- name: Smoke test deployment')[1]
-      ?.split('- name: Upload artifact')[0];
 
     for (const name of ['CLOUDFLARE_ACCESS_CLIENT_ID', 'CLOUDFLARE_ACCESS_CLIENT_SECRET']) {
-      expect(smokeStep).toContain(`${name}: \${{ secrets.${name} }}`);
+      for (const workflow of [test, production]) {
+        const smoke = workflow
+          .split('- name: Smoke test deployment')[1]
+          ?.split('\n      - name:')[0];
 
-      expect(test.split('- name: Smoke test deployment')[0]).not.toContain(name);
+        expect(smoke).toContain(`${name}: \${{ secrets.${name} }}`);
 
-      expect(test.split('- name: Upload artifact')[1]).not.toContain(name);
+        expect(workflow.split('- name: Smoke test deployment')[0]).not.toContain(name);
 
-      expect(production).not.toContain(name);
+        expect(
+          workflow
+            .split('- name: Smoke test deployment')[1]
+            ?.split('\n      - name:')
+            .slice(1)
+            .join('\n'),
+        ).not.toContain(name);
+      }
 
       expect(validation).not.toContain(name);
     }

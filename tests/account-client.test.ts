@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getSession, login, logout, saveBoard, setup } from '../src/account-client';
+import { getSession, saveBoard } from '../src/account-client';
 import { defaultBoard } from '../src/store';
 
 afterEach(() => {
@@ -15,16 +15,10 @@ describe('account API client', () => {
 
     expect(await getSession()).toEqual(value);
 
-    expect(await login('helper', 'long-password')).toEqual(value);
-
-    expect(await setup('token', 'long-password')).toEqual(value);
-
     expect(await saveBoard(value.board, 1, value.csrf)).toEqual({
       board: value.board,
       revision: 1,
     });
-
-    await logout(value.csrf);
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/board',
@@ -51,7 +45,7 @@ describe('account API client', () => {
 
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({}, { status: 503 })));
 
-    await expect(login('helper', 'password')).rejects.toThrow('503');
+    await expect(getSession()).rejects.toThrow('503');
   });
 
   it('rejects malformed session and board response shapes', async () => {
@@ -90,5 +84,31 @@ describe('account API client', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Offline')));
 
     await expect(getSession()).rejects.toThrow('Offline');
+  });
+
+  it('reports Access redirects and HTML responses without following redirects or saving a board', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 302 })));
+
+    await expect(getSession()).rejects.toThrow('sessão de acesso expirou');
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/session',
+      expect.objectContaining({ redirect: 'manual' }),
+    );
+
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response('<html>Access login</html>', { headers: { 'content-type': 'text/html' } }),
+        ),
+    );
+
+    await expect(saveBoard(defaultBoard(), 0, 'csrf')).rejects.toThrow('resposta inesperada');
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 0, type: 'opaqueredirect' }));
+
+    await expect(getSession()).rejects.toThrow('sessão de acesso expirou');
   });
 });

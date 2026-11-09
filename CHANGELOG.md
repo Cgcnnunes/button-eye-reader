@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0
+
+- Replace custom username/password authentication with signed Cloudflare Access human identities,
+  authorized-email login and managed sessions for both TEST and PROD.
+- Remove password hashing, app cookies, invitation/reset CLI and obsolete authentication APIs; keep
+  caregiver sorting and per-user D1 boards without weakening password security.
+- Add a forward migration archiving only legacy board data before removing unused authentication
+  tables and hashes; retain separate TEST/PROD databases for Access preferences.
+- Use environment-specific Service Auth credentials for deployment smoke checks while denying those
+  identities all caregiver APIs. Document Access setup, adding/removing users, session duration,
+  logout, migration/recovery, Free-plan limitations and required device acceptance.
+
 ## 0.5.2
 
 - Add privacy-safe diagnostics for unexpected API failures without logging raw exceptions,

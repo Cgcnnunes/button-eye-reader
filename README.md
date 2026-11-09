@@ -16,9 +16,9 @@ accuracy.
 | New phrases    | Caregiver-only writing workflow; up to 100 characters                              |
 | Speech         | Local system voice, preferring exact pt-PT; Safari may require touch authorization |
 | Eye Tracking   | Configured and calibrated in iPad settings, not in the website                     |
-| Accounts       | Invitation-only username/password login; administrator-issued password recovery    |
+| Accounts       | Cloudflare Access authorized-email login; no app passwords or invitation links     |
 | Storage        | Per-account Cloudflare D1 phrases, catalogue order and four speaking positions     |
-| Privacy        | No app camera access, eye measurements, diagnostic collection or uploads           |
+| Privacy        | No app camera access or face/eye measurements; speech stays local                  |
 
 - Apple manages tracking, pointer and dwell timing. The app receives ordinary button clicks, not
   gaze coordinates, and cannot detect accuracy or disable system tracking in the writing area.
@@ -32,6 +32,12 @@ accuracy.
 - Caregivers can reorder the four speaking positions and the catalogue independently, and choose
   where a new phrase is inserted. Changes are acknowledged only after the server saves them.
   Concurrent updates report a conflict instead of silently overwriting another device's changes.
+- Cloudflare Access protects the entire TEST and PROD sites and manages login/session expiry.
+  Administrators allow caregiver emails in its dashboard. The Worker verifies the signed human
+  identity before opening that user's board; automation tokens cannot retrieve or save boards.
+- Custom account/password code has been removed. A forward database migration archives only existing
+  board data for deliberate recovery, removes obsolete authentication tables/password hashes, and
+  creates preferences keyed by verified Access identity. Back up D1 before migration.
 
 ## Start locally
 
@@ -44,10 +50,11 @@ npx wrangler d1 migrations apply DB --local --env test
 npx wrangler dev --local --env test
 ```
 
-Open Wrangler's localhost URL after creating a local invitation as described in
-[DEPLOYMENT.md](docs/DEPLOYMENT.md). Static Vite development/preview alone does not provide the
-account API. Use HTTPS TEST on the iPad for release acceptance. There are no vision models to
-download or custom tracking headers to set.
+Local unauthenticated API requests intentionally fail closed; there is no developer identity bypass.
+See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for signed-token testing and required Access configuration.
+Static Vite development/preview alone does not provide the account API. Use Access-protected HTTPS
+TEST on the iPad for release acceptance. There are no vision models to download or custom tracking
+headers to set.
 
 ## Guides
 
@@ -56,7 +63,7 @@ download or custom tracking headers to set.
 | Contributor/AI rules and exact commit process    | [CONTRIBUTING.md](docs/CONTRIBUTING.md) |
 | Runtime flow and safety invariants               | [ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Apple Eye Tracking setup and physical iPad tests | [TESTING.md](docs/TESTING.md)           |
-| Cloudflare/GitHub setup and optional iPad login  | [DEPLOYMENT.md](docs/DEPLOYMENT.md)     |
+| Cloudflare/GitHub setup and managed iPad login   | [DEPLOYMENT.md](docs/DEPLOYMENT.md)     |
 | Versions, TEST releases and PROD promotion       | [RELEASES.md](docs/RELEASES.md)         |
 | Release history                                  | [CHANGELOG.md](CHANGELOG.md)            |
 
