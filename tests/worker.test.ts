@@ -1,8 +1,8 @@
 import type { JWTPayload } from 'jose';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { convertV4MiniflareOptions, Miniflare } from 'miniflare';
-import { readFileSync } from 'node:fs';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readdirSync, readFileSync } from 'node:fs';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Database } from '../src/access';
 import { defaultBoard } from '../src/store';
 import * as workerModule from '../src/worker';
@@ -14,7 +14,16 @@ const config = {
   ACCESS_TEAM_DOMAIN: 'worker-tests.cloudflareaccess.com',
 };
 const now = Math.floor(Date.now() / 1000);
+const baseline = readFileSync(
+  new URL('../migrations/0001_user_preferences.sql', import.meta.url),
+  'utf8',
+).replaceAll('\n', ' ');
 const assets = { fetch: vi.fn<(request: Request) => Promise<Response>>() };
+const validDuration = {
+  asymmetricMatch(value: unknown): boolean {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+  },
+};
 let runtime: Miniflare;
 let db: Database & { exec(sql: string): Promise<unknown> };
 let keys: Awaited<ReturnType<typeof generateKeyPair>>;
@@ -80,52 +89,7 @@ describe('Access Worker with signed JWTs and real local D1', () => {
 
     db = bindings.DB;
 
-    await db.exec(
-      readFileSync(new URL('../migrations/0001_accounts.sql', import.meta.url), 'utf8').replaceAll(
-        '\n',
-        ' ',
-      ),
-    );
-
-    await db
-      .prepare(
-        'INSERT INTO accounts (id, username, password_hash, board, revision) VALUES (?, ?, ?, ?, ?)',
-      )
-      .bind(
-        'legacy-id',
-        'legacy-user',
-        'never-archive-this-hash',
-        JSON.stringify(defaultBoard()),
-        7,
-      )
-      .run();
-
-    await db
-      .prepare('INSERT INTO account_tokens (token_hash, account_id, expires_at) VALUES (?, ?, ?)')
-      .bind('legacy-token', 'legacy-id', now + 3600)
-      .run();
-
-    await db
-      .prepare(
-        'INSERT INTO sessions (id, account_id, auth_version, token_hash, csrf, rotation_key, renewed_at, expires_at) VALUES (?, ?, 0, ?, ?, ?, ?, ?)',
-      )
-      .bind(
-        'legacy-session',
-        'legacy-id',
-        'legacy-token',
-        'legacy-csrf',
-        'legacy-key',
-        now,
-        now + 3600,
-      )
-      .run();
-
-    await db.exec(
-      readFileSync(
-        new URL('../migrations/0002_cloudflare_access.sql', import.meta.url),
-        'utf8',
-      ).replaceAll('\n', ' '),
-    );
+    await db.exec(baseline);
 
     keys = await generateKeyPair('RS256', { extractable: true });
 
@@ -133,6 +97,12 @@ describe('Access Worker with signed JWTs and real local D1', () => {
   }, 30_000);
 
   beforeEach(async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => undefined);
+
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
     assets.fetch.mockImplementation(() => Promise.resolve(new Response('asset')));
 
     vi.stubGlobal(
@@ -143,6 +113,10 @@ describe('Access Worker with signed JWTs and real local D1', () => {
         }),
       ),
     );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   afterAll(async () => {
@@ -179,28 +153,91 @@ describe('Access Worker with signed JWTs and real local D1', () => {
     }
   });
 
-  it('archives existing boards without credentials and removes obsolete tables in FK-safe order', async () => {
+  it('builds only the current application schema with required defaults and constraints', async () => {
+    expect(readdirSync(new URL('../migrations/', import.meta.url))).toEqual([
+      '0001_user_preferences.sql',
+    ]);
+
     expect(
-      await db.prepare('SELECT * FROM legacy_board_archive WHERE id = ?').bind('legacy-id').first(),
-    ).toEqual({
-      board: JSON.stringify(defaultBoard()),
-      id: 'legacy-id',
-      revision: 7,
-      username: 'legacy-user',
+      await db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name",
+        )
+        .run(),
+    ).toMatchObject({ results: [{ name: 'user_preferences' }] });
+
+    expect(await db.prepare('PRAGMA table_info(user_preferences)').run()).toMatchObject({
+      results: [
+        { cid: 0, dflt_value: null, name: 'access_subject', notnull: 1, pk: 1, type: 'TEXT' },
+        { cid: 1, dflt_value: null, name: 'board', notnull: 1, pk: 0, type: 'TEXT' },
+        { cid: 2, dflt_value: '0', name: 'revision', notnull: 1, pk: 0, type: 'INTEGER' },
+      ],
     });
 
-    for (const table of ['accounts', 'sessions', 'account_tokens', 'login_limits']) {
-      expect(
-        await db
-          .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
-          .bind(table)
-          .first(),
-      ).toBeNull();
-    }
+    await db
+      .prepare('INSERT INTO user_preferences (access_subject, board) VALUES (?, ?)')
+      .bind('schema-default', JSON.stringify(defaultBoard()))
+      .run();
+
+    expect(
+      await db
+        .prepare('SELECT revision FROM user_preferences WHERE access_subject = ?')
+        .bind('schema-default')
+        .first(),
+    ).toEqual({ revision: 0 });
 
     await expect(
       db.prepare('INSERT INTO user_preferences VALUES (?, ?, -1)').bind('bad', '{}').run(),
     ).rejects.toThrow(/CHECK/);
+
+    await expect(
+      db.prepare('INSERT INTO user_preferences VALUES (NULL, ?, 0)').bind('{}').run(),
+    ).rejects.toThrow(/NOT NULL/);
+
+    await expect(
+      db.prepare('INSERT INTO user_preferences VALUES (?, NULL, 0)').bind('bad').run(),
+    ).rejects.toThrow(/NOT NULL/);
+
+    await expect(
+      db.prepare('INSERT INTO user_preferences VALUES (?, ?, NULL)').bind('bad', '{}').run(),
+    ).rejects.toThrow(/NOT NULL/);
+
+    await expect(
+      db
+        .prepare('INSERT INTO user_preferences VALUES (?, ?, 0)')
+        .bind('schema-default', '{}')
+        .run(),
+    ).rejects.toThrow(/UNIQUE/);
+
+    await db
+      .prepare('DELETE FROM user_preferences WHERE access_subject = ?')
+      .bind('schema-default')
+      .run();
+  });
+
+  it('reapplying the current schema preserves saved boards and revisions', async () => {
+    const board = JSON.stringify(defaultBoard());
+
+    await db
+      .prepare('INSERT INTO user_preferences (access_subject, board, revision) VALUES (?, ?, ?)')
+      .bind('baseline-preserved-subject', board, 7)
+      .run();
+
+    await db.exec(baseline);
+
+    await db.exec(baseline);
+
+    expect(
+      await db
+        .prepare('SELECT board, revision FROM user_preferences WHERE access_subject = ?')
+        .bind('baseline-preserved-subject')
+        .first(),
+    ).toEqual({ board, revision: 7 });
+
+    await db
+      .prepare('DELETE FROM user_preferences WHERE access_subject = ?')
+      .bind('baseline-preserved-subject')
+      .run();
   });
 
   it('fails closed without D1/Access configuration or a human signed assertion', async () => {
@@ -478,10 +515,13 @@ describe('Access Worker with signed JWTs and real local D1', () => {
 
     expect(await databaseResponse.text()).not.toContain(secret);
 
-    expect(log).toHaveBeenLastCalledWith('Access request failed', {
+    expect(log).toHaveBeenLastCalledWith({
       category: 'database-operation',
+      durationMs: validDuration,
       errorType: 'Error',
+      message: 'Worker request',
       operation: '/api/session',
+      status: 503,
     });
 
     vi.stubGlobal('fetch', vi.fn<typeof globalThis.fetch>().mockRejectedValue(new Error(secret)));
@@ -500,10 +540,13 @@ describe('Access Worker with signed JWTs and real local D1', () => {
 
     expect(keyResponse.status).toBe(503);
 
-    expect(log).toHaveBeenLastCalledWith('Access request failed', {
+    expect(log).toHaveBeenLastCalledWith({
       category: 'access-key-service',
+      durationMs: validDuration,
       errorType: 'Error',
+      message: 'Worker request',
       operation: '/api/session',
+      status: 503,
     });
 
     const customError = new Error(secret);
@@ -516,10 +559,13 @@ describe('Access Worker with signed JWTs and real local D1', () => {
 
     expect(assetResponse.status).toBe(503);
 
-    expect(log).toHaveBeenLastCalledWith('Access request failed', {
+    expect(log).toHaveBeenLastCalledWith({
       category: 'unexpected-operation',
+      durationMs: validDuration,
       errorType: 'other',
+      message: 'Worker request',
       operation: 'other',
+      status: 503,
     });
 
     assets.fetch.mockRejectedValue(secret);
@@ -527,5 +573,130 @@ describe('Access Worker with signed JWTs and real local D1', () => {
     expect((await request('/')).status).toBe(503);
 
     expect(JSON.stringify(log.mock.calls)).not.toContain(secret);
+  });
+
+  it('logs one safe success per API request, including saves, without successful asset noise', async () => {
+    const secret = 'private-query-cookie-phrase';
+    const session = await request(`/api/session?${secret}`, {
+      headers: { cookie: secret, 'user-agent': secret, 'x-forwarded-for': '192.0.2.1' },
+    });
+
+    expect(session.status).toBe(200);
+
+    expect(console.info).toHaveBeenCalledExactlyOnceWith({
+      category: 'success',
+      durationMs: validDuration,
+      message: 'Worker request',
+      operation: '/api/session',
+      status: 200,
+    });
+
+    const saved = (await session.json()) as { board: unknown; csrf: string; revision: number };
+    const result = await request('/api/board', {
+      ...payload({ board: saved.board, revision: saved.revision }),
+      headers: {
+        'content-type': 'application/json',
+        origin,
+        'x-csrf-token': saved.csrf,
+      },
+    });
+
+    expect(result.status).toBe(200);
+
+    expect(console.info).toHaveBeenLastCalledWith({
+      category: 'success',
+      durationMs: validDuration,
+      message: 'Worker request',
+      operation: '/api/board',
+      status: 200,
+    });
+
+    for (const path of ['/', '/assets/app.js', '/release.json']) await request(path);
+
+    expect(console.info).toHaveBeenCalledTimes(2);
+
+    expect(console.warn).not.toHaveBeenCalled();
+
+    expect(console.error).not.toHaveBeenCalled();
+
+    expect(JSON.stringify(vi.mocked(console.info).mock.calls)).not.toMatch(
+      /private-query-cookie-phrase|caregiver@|caregiver-subject|192\.0\.2\.1|csrf|slots|phrases/,
+    );
+  });
+
+  it('logs rejections, conflicts and unavailable configuration without identities or raw paths', async () => {
+    expect((await request('/api/session', {}, '')).status).toBe(401);
+
+    expect(console.warn).toHaveBeenLastCalledWith({
+      category: 'request-rejected',
+      durationMs: validDuration,
+      message: 'Worker request',
+      operation: '/api/session',
+      status: 401,
+    });
+
+    expect((await request('/api/private-path?secret=private')).status).toBe(404);
+
+    expect(console.warn).toHaveBeenLastCalledWith({
+      category: 'request-rejected',
+      durationMs: validDuration,
+      message: 'Worker request',
+      operation: 'other',
+      status: 404,
+    });
+
+    expect(
+      (await request('/api/board', payload({ board: defaultBoard(), revision: 99 }))).status,
+    ).toBe(409);
+
+    expect(console.warn).toHaveBeenLastCalledWith({
+      category: 'save-conflict',
+      durationMs: validDuration,
+      message: 'Worker request',
+      operation: '/api/board',
+      status: 409,
+    });
+
+    vi.spyOn(performance, 'now').mockReturnValueOnce(100.2).mockReturnValueOnce(112.9);
+
+    expect(
+      (await worker.fetch(new Request(`${origin}/api/session`), { ASSETS: assets })).status,
+    ).toBe(503);
+
+    expect(console.error).toHaveBeenCalledExactlyOnceWith({
+      category: 'service-unavailable',
+      durationMs: 13,
+      message: 'Worker request',
+      operation: '/api/session',
+      status: 503,
+    });
+
+    expect(console.warn).toHaveBeenCalledTimes(3);
+
+    expect(console.info).not.toHaveBeenCalled();
+
+    expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('private');
+  });
+
+  it('logs returned asset server failures once but not asset redirects or missing files', async () => {
+    for (const status of [302, 404, 500, 503]) {
+      assets.fetch.mockResolvedValue(new Response('asset', { status }));
+
+      expect((await request('/private-asset?secret=private')).status).toBe(status);
+    }
+
+    expect(console.error).toHaveBeenCalledTimes(2);
+
+    expect(console.error).toHaveBeenLastCalledWith({
+      category: 'service-unavailable',
+      durationMs: validDuration,
+      message: 'Worker request',
+      operation: 'other',
+      status: 503,
+    });
+
+    expect(console.info).not.toHaveBeenCalled();
+
+    expect(console.warn).not.toHaveBeenCalled();
   });
 });

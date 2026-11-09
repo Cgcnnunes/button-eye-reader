@@ -2,6 +2,17 @@
 
 ## 0.6.1
 
+- Refresh the README and operational guides to describe the current implementation and storage
+  model, retaining release history and necessary baseline-adoption checks.
+- Replace the retired migration chain with `0001_user_preferences.sql`, a current-schema baseline
+  that creates only Access preferences. Initialize tests from that schema and verify constraints,
+  repeat application and existing board preservation.
+- Persist minimal structured Cloudflare Worker logs for API successes/rejections, save conflicts and
+  server failures, excluding identities, phrases, credentials, raw URLs and exception messages from
+  application fields; keep successful assets quiet.
+- Disable automatic invocation logs and tracing, redact platform URL query strings, and document
+  dashboard access, platform metadata, retention/quotas and safe diagnostic sharing.
+
 - Highlight all four replacement choices with a distinct tint and dashed borders; keep phrase text
   centered without replacement subtitles and mark the updated position only after a successful save.
 - Add brief color feedback for standard button activation without moving targets or delaying

@@ -30,7 +30,7 @@ on promotion.
 
 Run `npm run release:prepare -- patch` (or major/minor), update the changelog and select exactly one
 kind in the standard PR template. The manifests must match; Vite displays this version in the
-footer. The bootstrap release was v0.1.0 with minor selected.
+footer.
 
 Existing prerelease tags consume version numbers too. Wait for pending TEST release creation before
 preparing the next version. Refresh branch/commit IDs and version if main advances; do not rewrite
@@ -55,20 +55,20 @@ Every main push starts **Deploy to TEST**, but only an eligible squash commit de
 - Successful `npm run verify` within that TEST workflow, independently of PR validation.
 
 The workflow applies TEST D1 migrations before Worker deployment. Provision the database and token
-permissions before merging the first account release; missing bindings/migrations fail deployment,
-not authentication silently. After smoke checks, the workflow saves the tested static artifact and
-creates an immutable annotated tag/prerelease with generated notes, TEST URL and PR/run/artifact
-provenance. No extra version commit or automatic PR merge is created. Existing tags never move.
+permissions before deploying; missing bindings/migrations fail deployment, not authentication
+silently. After smoke checks, the workflow saves the tested static artifact and creates an immutable
+annotated tag/prerelease with generated notes, TEST URL and PR/run/artifact provenance. No extra
+version commit or automatic PR merge is created. Existing tags never move.
 
-The Access replacement requires team/audience configuration and whole-host Access policies before
-merge. Both TEST and PROD smoke checks need separate environment-scoped Service Auth credentials.
-Each workflow runs `node scripts/deployment.ts access test` or `production` before migrations to
-reject placeholder/malformed team domains or audiences and shared TEST/PROD audiences. This checks
-configuration format, not the presence/correctness of Access dashboard policies. Back up D1 before
-the forward migration removing old custom-auth tables; the board-only recovery archive does not make
-old Worker password/session code compatible with the new schema. Plan a maintenance window for
-migration plus deployment. Do not rerun or roll back to a pre-Access Worker against the migrated
-database.
+Access requires team/audience configuration and whole-host policies before merge. Both TEST and PROD
+smoke checks need separate environment-scoped Service Auth credentials. Each workflow runs
+`node scripts/deployment.ts access test` or `production` before migrations to reject
+placeholder/malformed team domains or audiences and shared TEST/PROD audiences. This checks
+configuration format, not the presence/correctness of Access dashboard policies. Back up D1, review
+pending SQL and confirm Worker/schema compatibility before migration plus deployment. For
+current-baseline adoption checks and backup steps, see
+[D1 deployment preparation](DEPLOYMENT.md#4-back-up-and-migrate-d1-with-a-maintenance-window). Do
+not roll back code against an incompatible schema.
 
 TEST's URL is stable; later merges replace its content. Record the tested `release.json` tag/SHA and
 device results before that happens. Never approve an old tag using a different version now on TEST.

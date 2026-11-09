@@ -16,7 +16,7 @@ accuracy.
 | New phrases    | Caregiver-only writing workflow; up to 100 characters                              |
 | Speech         | Local system voice, preferring exact pt-PT; Safari may require touch authorization |
 | Eye Tracking   | Configured and calibrated in iPad settings, not in the website                     |
-| Accounts       | Cloudflare Access authorized-email login; no app passwords or invitation links     |
+| Accounts       | Cloudflare Access authorized-email login and managed sessions                      |
 | Storage        | Per-account Cloudflare D1 phrases, catalogue order and four speaking positions     |
 | Privacy        | No app camera access or face/eye measurements; speech stays local                  |
 
@@ -26,18 +26,19 @@ accuracy.
   on the intended iPad, including after speech finishes.
 - Speech failures/missing pt-PT voices are reported; accent and continuing authorization are not
   guaranteed.
-- Phrases are stored in Cloudflare D1, not imported from old browser storage. A new account starts
-  with defaults. Sign in to the same account to restore its last saved board on another device. TEST
-  and PROD have separate accounts and data. Do not enter sensitive information.
+- Phrases are stored in Cloudflare D1. A new account starts with defaults. Sign in to the same
+  account to restore its last saved board on another device. TEST and PROD have separate accounts
+  and data. Do not enter sensitive information.
 - Caregivers can reorder the four speaking positions and the catalogue independently, and choose
   where a new phrase is inserted. Changes are acknowledged only after the server saves them.
   Concurrent updates report a conflict instead of silently overwriting another device's changes.
 - Cloudflare Access protects the entire TEST and PROD sites and manages login/session expiry.
   Administrators allow caregiver emails in its dashboard. The Worker verifies the signed human
   identity before opening that user's board; automation tokens cannot retrieve or save boards.
-- Custom account/password code has been removed. A forward database migration archives only existing
-  board data for deliberate recovery, removes obsolete authentication tables/password hashes, and
-  creates preferences keyed by verified Access identity. Back up D1 before migration.
+- Cloudflare stores minimal operational logs for API successes/rejections and server failures, not
+  successful asset requests. Application log fields exclude identities, phrases and credentials;
+  Cloudflare may attach platform metadata. See
+  [logging and privacy](docs/DEPLOYMENT.md#operational-logs-and-privacy) before sharing logs.
 
 ## Start locally
 
@@ -53,8 +54,7 @@ npx wrangler dev --local --env test
 Local unauthenticated API requests intentionally fail closed; there is no developer identity bypass.
 See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for signed-token testing and required Access configuration.
 Static Vite development/preview alone does not provide the account API. Use Access-protected HTTPS
-TEST on the iPad for release acceptance. There are no vision models to download or custom tracking
-headers to set.
+TEST on the iPad for release acceptance.
 
 ## Guides
 

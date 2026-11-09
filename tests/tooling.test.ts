@@ -6,6 +6,25 @@ import { describe, expect, it } from 'vitest';
 const root = fileURLToPath(new URL('../', import.meta.url));
 
 describe('mandatory lint and hook configuration', () => {
+  it('persists custom logs without invocation logs, query strings or traces in both environments', () => {
+    const config = readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
+    const observability = config.split('"observability": {')[1]?.split('"env": {')[0];
+
+    expect(observability).toContain('"enabled": true');
+
+    expect(observability).toContain('"redact_query_string": true');
+
+    expect(observability).toContain('"head_sampling_rate": 1');
+
+    expect(observability).toContain('"invocation_logs": false');
+
+    expect(observability).toContain('"persist": true');
+
+    expect(observability).toMatch(/"traces":\s*\{\s*"enabled": false/);
+
+    expect(config.match(/"observability":/g)).toHaveLength(1);
+  });
+
   it('uses height-adaptive tablet layouts without hiding clipped content', () => {
     const styles = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8');
     const tablet = styles
