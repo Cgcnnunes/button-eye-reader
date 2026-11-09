@@ -1,6 +1,5 @@
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { unlinkSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { defaultBoard } from '../src/store.ts';
@@ -96,65 +95,61 @@ export function runAccountCommand(args: string[]): void {
   const command = parseArguments(args);
   const token = randomBytes(32).toString('hex');
   const hash = createHash('sha256').update(token).digest('hex');
-  const file = resolve(`.account-operation-${randomUUID()}.sql`);
+  const executable = resolve('node_modules', 'wrangler', 'bin', 'wrangler.js');
+  const result = spawnSync(
+    process.execPath,
+    [
+      executable,
+      'd1',
+      'execute',
+      'DB',
+      '--env',
+      command.environment,
+      command.local ? '--local' : '--remote',
+      '--command',
+      invitationSql(command, hash, Math.floor(Date.now() / 1000) + 24 * 60 * 60),
+      '--json',
+    ],
+    { encoding: 'utf8', windowsHide: true },
+  );
 
-  writeFileSync(file, invitationSql(command, hash, Math.floor(Date.now() / 1000) + 24 * 60 * 60), {
-    mode: 0o600,
-  });
+  if (result.status !== 0) {
+    throw new Error(
+      'D1 operation failed. Check authenticated Wrangler access, binding IDs and migrations. No link was issued.',
+    );
+  }
+
+  let output: unknown;
 
   try {
-    const executable = resolve('node_modules', 'wrangler', 'bin', 'wrangler.js');
-    const result = spawnSync(
-      process.execPath,
-      [
-        executable,
-        'd1',
-        'execute',
-        'DB',
-        '--env',
-        command.environment,
-        command.local ? '--local' : '--remote',
-        '--file',
-        file,
-        '--json',
-      ],
-      { encoding: 'utf8', windowsHide: true },
+    output = JSON.parse(result.stdout) as unknown;
+  } catch {
+    throw new Error(
+      'D1 returned invalid confirmation output. The account may already exist; use reset with the same username to recover a setup link. No link was issued.',
     );
-
-    if (result.status !== 0) {
-      throw new Error(
-        'D1 operation failed. Check authenticated Wrangler access, binding IDs and migrations. No link was issued.',
-      );
-    }
-
-    const output: unknown = JSON.parse(result.stdout);
-
-    if (
-      !Array.isArray(output) ||
-      !output.some(
-        (item: unknown) =>
-          typeof item === 'object' &&
-          item !== null &&
-          'results' in item &&
-          Array.isArray(item.results) &&
-          item.results.some(
-            (row: unknown) =>
-              typeof row === 'object' &&
-              row !== null &&
-              'account_id' in row &&
-              typeof row.account_id === 'string',
-          ),
-      )
-    ) {
-      throw new Error(
-        'Account not found or D1 did not confirm token issuance. No link was issued.',
-      );
-    }
-
-    process.stdout.write(`${command.origin}/#setup=${token}\n`);
-  } finally {
-    unlinkSync(file);
   }
+
+  if (
+    !Array.isArray(output) ||
+    !output.some(
+      (item: unknown) =>
+        typeof item === 'object' &&
+        item !== null &&
+        'results' in item &&
+        Array.isArray(item.results) &&
+        item.results.some(
+          (row: unknown) =>
+            typeof row === 'object' &&
+            row !== null &&
+            'account_id' in row &&
+            typeof row.account_id === 'string',
+        ),
+    )
+  ) {
+    throw new Error('Account not found or D1 did not confirm token issuance. No link was issued.');
+  }
+
+  process.stdout.write(`${command.origin}/#setup=${token}\n`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1
+
+- Document the complete new-user workflow and distinguish optional Access email permission from
+  application invitations.
+- Submit invitation/reset SQL as inline D1 queries instead of file imports, preserving structured
+  JSON confirmation and returned account IDs; explain recovery after an ambiguous issuance error.
+
 ## 0.5.0
 
 - Bind the provisioned, separate TEST/PROD D1 databases so deployment migrations use real database
