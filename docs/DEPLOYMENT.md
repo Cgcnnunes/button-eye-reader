@@ -126,16 +126,16 @@ Access email.
    needs D1 editing permission; the database must be provisioned and migrated.
 2. Choose **TEST** or **PROD** deliberately. Accounts and boards are separate: a TEST invitation
    does not create a PROD account. Choose a username, not an email address.
-3. For TEST, replace `new-caregiver` below with the desired username and run:
+3. For TEST, replace `test-user` below with the desired username and run:
 
    ```powershell
-   node scripts\accounts.ts invite --env test --username new-caregiver --origin https://button-eye-reader-test.cgcnnunes.workers.dev
+   node scripts\accounts.ts invite --env test --username test-user --origin https://button-eye-reader-test.cgcnnunes.workers.dev
    ```
 
    For PROD, use this command instead, only after PROD database setup and account deployment:
 
    ```powershell
-   node scripts\accounts.ts invite --env production --username new-caregiver --origin https://button-eye-reader-prod.cgcnnunes.workers.dev
+   node scripts\accounts.ts invite --env production --username test-user --origin https://button-eye-reader-prod.cgcnnunes.workers.dev
    ```
 
 4. Send the printed one-use setup link directly to the intended caregiver. It expires after 24
@@ -236,9 +236,31 @@ requests remain 401. The public root is served directly, without a login redirec
 only `{error: string}` with visible pt-PT messages. A stale board revision returns **409** without
 overwriting stored data; refresh and deliberately resolve the conflict. Missing DB/infrastructure
 failures return 503. Dynamic responses deny framing and camera/microphone/geolocation, disallow
-referrers, and set `Cache-Control: no-store`. The Worker emits no sensitive
-request/account/phrase/password logs. Application permission does not disable Apple's system Eye
-Tracking.
+referrers, and set `Cache-Control: no-store`. Unexpected failures emit a fixed diagnostic category,
+an allowlisted exception type and a known API route (or `other`), never raw exception messages,
+query strings, request bodies, usernames, phrases, passwords, cookies or invitation tokens.
+Application permission does not disable Apple's system Eye Tracking.
+
+#### Diagnose a failed password setup safely
+
+Wrangler tail's `Ok` outcome means the Worker completed execution, not that setup succeeded. An
+unexpected exception is caught and becomes HTTP 503 with a generic user-visible message. Expected
+invalid/expired invitation errors have their own message and are not logged as unexpected failures.
+
+Stored Observability remains disabled in the repository configuration. To see live diagnostics:
+
+```powershell
+npx wrangler tail --env test --format pretty
+```
+
+Wait for connection, retry the setup once, then stop with Ctrl+C. Share only the
+`Account request failed` diagnostic fields, not complete tail output or a private setup URL.
+`password-kdf-limit` indicates a runtime PBKDF2 iteration limit; `cryptography-operation` indicates
+another cryptographic failure; `database-operation` indicates a D1/SQLite failure. Other failures
+use `unexpected-operation`; these categories are clues, not a full root-cause diagnosis. Platform
+CPU-limit failures may appear separately as a request outcome. Do not reduce password hashing cost,
+assume a paid plan fixes a crypto limit, or recreate/delete an account based solely on the generic
+message. Confirm the cause first.
 
 Public PROD smoke checks validate public home/build asset identity without a caregiver cookie. The
 additional unauthenticated `GET /api/session` check must return exactly 401, `application/json`,
