@@ -7,8 +7,8 @@ system.
 ## Runtime
 
 TypeScript/CSS built by Vite, served by Cloudflare Workers Static Assets. The same-origin Worker
-verifies Cloudflare Access human identities and serves account-scoped Cloudflare D1 preferences. No
-UI framework, external speech API, camera capture or diagnostic reporting.
+verifies Cloudflare Access human identities and serves account-scoped Cloudflare D1 preferences.
+Speech runs locally; operational logging runs in the Worker.
 
 ```mermaid
 flowchart LR
@@ -22,14 +22,33 @@ flowchart LR
   Storage --> Board
 ```
 
-| Module                  | Responsibility                                                            |
-| ----------------------- | ------------------------------------------------------------------------- |
-| `src/main.ts`           | Board, catalogue, replacement, caregiver form and standard click handling |
-| `src/store.ts`          | Phrase validation, defaults and immutable ordering/slot updates           |
-| `src/account-client.ts` | Access session bootstrap and revision-checked board saves                 |
-| `src/access.ts`         | Signed Access JWT verification and validated D1 preferences               |
-| `src/speech.ts`         | Prefer exact pt-PT system voice, prevent queued repeats, report failures  |
-| `src/worker.ts`         | Public assets, authenticated API and private app routing                  |
+| Module                  | Responsibility                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| `src/main.ts`           | Board, catalogue, replacement, caregiver form and standard click handling       |
+| `src/store.ts`          | Phrase validation, defaults and immutable ordering/slot updates                 |
+| `src/account-client.ts` | Access session bootstrap and revision-checked board saves                       |
+| `src/access.ts`         | Signed Access JWT verification and validated D1 preferences                     |
+| `src/speech.ts`         | Prefer exact pt-PT system voice, prevent queued repeats, report failures        |
+| `src/worker.ts`         | Edge-protected assets, authenticated API, security headers and operational logs |
+
+## Current storage model
+
+Each environment has its own D1 database. `user_preferences` contains one row per verified Access
+subject:
+
+| Column           | Purpose                                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------ |
+| `access_subject` | Primary key from the verified Access `sub` claim                                                 |
+| `board`          | Validated JSON with `version`, ordered `phrases` and four ordered `slots` referencing phrase IDs |
+| `revision`       | Nonnegative integer used to reject stale saves                                                   |
+
+Catalogue order follows the `phrases` array; speaking-button positions follow the `slots` array. The
+API reads and saves the complete board, updating its revision atomically. Email is display data, not
+the storage key. New subjects receive defaults once; existing boards are preserved on login.
+Wrangler maintains `d1_migrations`; SQLite/Cloudflare maintain their internal tables. Setup and
+baseline-adoption checks belong in [DEPLOYMENT.md](DEPLOYMENT.md). Fresh databases and tests use
+`migrations/0001_user_preferences.sql` directly; existing matching databases keep their rows when
+Wrangler applies the baseline. Subsequent deployments apply only new migrations.
 
 ## Safety and privacy invariants
 
@@ -45,16 +64,16 @@ flowchart LR
   to 96px as viewport height permits.
 - Replacement keeps only centered phrase text inside four tinted, dashed-border targets, with the
   selected phrase and instructions above them and descriptive accessible names. Only a successful
-  save marks the updated speaking position in green. The footer omits the redundant storage message.
+  save marks the updated speaking position in green.
 - Standard clicks give brief color/inset feedback on buttons without moving or resizing targets,
   adding activation delays or changing speech busy guards. Reduced-motion preferences disable the
   feedback animation; pressed colors, keyboard focus and the saved-position highlight remain.
-- Tablet layouts use the dynamic viewport height and shrinkable grid rows across all four screens.
-  Phrase typography follows the available grid height; the caregiver textarea cannot be manually
-  resized past its allocated space. No overflow hiding is used to conceal clipped content.
+- Tablet layouts use the dynamic viewport height and shrinkable grid rows across board, catalogue,
+  replacement, writing and ordering screens. Phrase typography follows the available grid height;
+  the caregiver textarea cannot be manually resized past its allocated space. No overflow hiding is
+  used to conceal clipped content.
 - New accounts start with yes, no, bathroom and pain and the prescribed 26-template catalogue.
-  Browser-local boards are not imported. Legacy local migration helpers remain tested but are not
-  applied to cloud boards; caregiver ordering and assignments survive login unchanged.
+  Caregiver ordering and assignments survive login unchanged.
 - Template IDs stay stable when the catalogue is reordered. The caregiver can move catalogue entries
   independently of the four speaking positions, and select the insertion position of a new phrase.
   Account data is validated without forcing template order on subsequent loads.
@@ -64,20 +83,16 @@ flowchart LR
   token. Failures/conflicts leave the displayed board unchanged and show recovery guidance; there is
   no offline/local fallback or silent last-writer-wins synchronization.
 - Access protects each entire hostname before the Worker runs. Its login UI appears before the
-  branded application home; a valid human identity opens the existing unbranded board. There is no
-  app username/password form or custom cookie/session store. The application's entry/error screen
-  retains the logo and a link to `/app`. An expired Access session redirects at the edge; fetch
-  redirects/HTML are explicit errors rather than success-shaped preference responses.
+  branded application home; a valid human identity opens the existing unbranded board. The
+  application's entry/error screen retains the logo and a link to `/app`. An expired Access session
+  redirects at the edge; fetch redirects/HTML are explicit errors rather than success-shaped
+  preference responses.
 - Logout clears the displayed private board and stops speech, then navigates to Access's
   `/cdn-cgi/access/logout`. Access owns session revocation and any remaining identity-provider
   sessions; the application cannot guarantee an upstream provider also signs out.
 - JWT verification pins RS256, issuer and environment-specific audience and checks expiry/human
   claims. Merely supplying an email/header does not establish identity. Service Auth identities may
   retrieve build assets for smoke tests but can never retrieve or save a user's board.
-- One D1 database per environment remains necessary. The forward Access migration removes custom
-  authentication tables and password hashes while retaining only legacy board data in a recovery
-  archive. Old usernames are not automatically linked to Access email identities. Archive recovery
-  and eventual removal are explicit owner actions after backup, not app permission fallbacks.
 - No app camera permission, face/eye measurements, model downloads or calibration reports.
 - Apple owns calibration, pointer and dwell. The app does not receive gaze coordinates, assess
   tracking quality, enforce an additional dwell interval or implement a gaze repeat lock.
@@ -100,8 +115,13 @@ reported; neither accent nor continuing audio authorization is guaranteed.
   authentication bypass.
 - Environment-specific Access service secrets appear only in that environment's smoke step, never in
   browser assets/builds. Smoke tests validate build identity and API rejection of service
-  credentials, not a human login. The old custom tracking header has no role.
-- No report routes, private R2 bindings, report secrets or scheduled cleanup.
+  credentials, not a human login.
+- Workers Logs persist one minimal application entry per API outcome and per server failure, with
+  fixed operation/category labels, HTTP status, server duration and allowlisted unexpected-error
+  type. Successful assets stay quiet. No identities, phrases, credentials, raw URLs or exception
+  messages are emitted by application logging. Invocation logs/tracing are disabled and platform
+  query strings are redacted; Cloudflare can still attach platform metadata. This is operational
+  logging, not browser telemetry or a durable security audit trail.
 - PROD deploys the exact tested artifact, not a rebuilt site. Smoke checks prove asset identity, not
   physical-device acceptance. Deployment and release updates are not an atomic transaction.
 - Setup: [DEPLOYMENT.md](DEPLOYMENT.md). Version/provenance: [RELEASES.md](RELEASES.md).

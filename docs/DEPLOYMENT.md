@@ -10,7 +10,7 @@ squash merges; PROD promotes the exact tested artifact and tag, without rebuildi
 - Use the Node version in `.nvmrc`, run `npm ci` and `npm run verify`.
 - Confirm the Cloudflare account, existing Workers and existing D1 databases before changing them.
 - Set up GitHub branch/tag protection and deployment environments as documented in RELEASES.
-- Complete Access configuration **before merging or applying migration 0002**. The committed
+- Complete Access configuration **before merging or applying pending migrations**. The committed
   TEST/PROD configuration contains the linked applications' team domain and distinct audience tags.
   Verify these against the dashboard before deploying; top-level local vars remain placeholders.
 - Deployment preflight checks the selected environment's team-domain/audience syntax **before**
@@ -49,10 +49,10 @@ including `/`, `/index.html`, `/app`, `/api/*`, built assets and `release.json`,
 environments. Audit any custom domains, routes, alternate hostnames and version URLs too: remove
 unused entry points or protect each one. Protecting only previews or only `/app` is insufficient.
 
-The existing, distinct TEST/PROD D1 IDs in `wrangler.jsonc` remain unchanged; do not create
-replacement databases for this migration. The top-level all-zero database ID is local only. Never
-bind TEST and PROD to the same database. For another account, provision separate databases and
-replace the remote IDs through a reviewed feature PR:
+Use the existing, distinct TEST/PROD D1 IDs in `wrangler.jsonc`; do not recreate databases during
+deployment. The top-level all-zero database ID is local only. Never bind TEST and PROD to the same
+database. For another account, provision separate databases and replace the remote IDs through a
+reviewed feature PR:
 
 ```powershell
 npx wrangler login
@@ -67,16 +67,14 @@ local storage is not an authority or fallback for cloud boards.
 
 ## 3. Configure Cloudflare Access first
 
-Cloudflare Access is the **single login**. There are no application passwords, invitations, reset
-links, account-administration CLI or application session cookies. Separate self-hosted Access
-applications protect TEST and PROD, with separate audience tags and independently managed policies.
-The same human may use both, but their D1 boards remain separate.
+Cloudflare Access is the **single login** and manages caregiver identity and sessions. Separate
+self-hosted Access applications protect TEST and PROD, with separate audience tags and independently
+managed policies. The same human may use both, but their D1 boards remain separate.
 
 Cloudflare offers a [Zero Trust Free plan](https://www.cloudflare.com/plans/zero-trust-services/)
-for small deployments. Stay within current Access, Workers and D1 Free limits; monitor usage.
-Removing password derivation avoids its former CPU expense, but does not guarantee unlimited free
-traffic or establish production runtime performance. A paid password-hashing plan is no longer a
-requirement of this application.
+for small deployments. Stay within current Access, Workers, D1 and logging limits; monitor usage.
+Free-plan availability does not guarantee unlimited traffic or establish production runtime
+performance.
 
 ### Protect both entire hosts
 
@@ -138,9 +136,8 @@ separate public hostname or a different edge policy and is not part of this arch
 5. Enter the board. The first valid human session creates default preferences keyed by the verified
    Access `sub`. The displayed `username` is the verified email, not a separate account username.
 
-An email OTP login requires a real mailbox controlled by the caregiver, not a legacy custom username
-or an example address. There is no second username/password login. Updating the Allow list does not
-transfer a legacy board; use the verified-owner archive recovery procedure below.
+An email OTP login requires a real mailbox controlled by the caregiver, not an example address.
+Adding an approved email permits login; preferences are created on the first valid human session.
 
 In the current policy editor, use **Policy rules > Include > Emails** to manage approved addresses,
 keep **Policy details > Action > Allow**, and keep **Policy session duration > Same as application
@@ -179,10 +176,9 @@ using a still-valid global identity session without a new OTP. This is not a gua
 application session. Cloudflare One Client authentication, if enabled, can take precedence; do not
 enable it inadvertently. Check actual saved options and test renewal in Safari.
 
-The app never rotates its own session cookie. Logout clears in-memory communication data/stops
-speech before browser navigation to `/cdn-cgi/access/logout`, handled by Access. There is no
-`POST /api/logout`. Test actual Access logout/re-entry, including any identity-provider session, on
-the intended shared device.
+Logout clears in-memory communication data/stops speech before browser navigation to
+`/cdn-cgi/access/logout`, handled by Access. Test actual Access logout/re-entry, including any
+identity-provider session, on the intended shared device.
 
 ### Configure the signed identity verifier
 
@@ -206,8 +202,8 @@ to RS256, the exact HTTPS issuer, the environment audience and required `exp`, `
 issued-at times, invalid signatures, expiry, invalid human emails and service-token claims are
 rejected. Keys are fetched/cached only from the validated configured team host at
 `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`; an arbitrary JWT issuer cannot choose a
-fetch destination. Unverified email headers, old app cookies and service credentials never establish
-caregiver identity. See
+fetch destination. Unverified email headers and service credentials never establish caregiver
+identity. See
 [JWT validation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/).
 
 ### Configure automation independently in BOTH environments
@@ -252,33 +248,60 @@ Official references:
 
 ## 4. Back up and migrate D1 with a maintenance window
 
-**Migration 0002 irreversibly drops password/session/invitation/rate-limit tables. Back up before
-applying it.** Do not edit already-applied `0001_accounts.sql`. Migration and Worker deployment are
-not atomic: the preceding password-authentication Worker is incompatible with the new schema.
-Arrange a brief maintenance window for each environment, restrict entry at the edge if needed, and
-apply migration 0002 immediately before deploying the new Access Worker. Workflows apply migrations
-before deploying, so a failed Worker deployment can leave an incompatible old Worker live. Recover
-forward with this release; **do not revert to the old Worker**. Restoring a database/old release
-requires separate authorized recovery planning, not an ordinary artifact rollback.
+Back up each environment before applying pending migrations. Workflows apply migrations before
+Worker deployment; these steps are not atomic. Review the selected release's SQL and compatibility
+with the live Worker, arrange a maintenance window for incompatible changes, and restrict entry at
+the edge if needed. A failed deployment may require completing the forward deployment rather than
+reverting code against an incompatible schema.
 
-Before each environment's first Access release:
+### Current-schema baseline
+
+`migrations/0001_user_preferences.sql` is the current starting point. It creates only
+`user_preferences` on a fresh database. On an existing database with the matching current schema,
+`CREATE TABLE IF NOT EXISTS` preserves the table and all rows; Wrangler records the new baseline
+normally. Normal deployments must not delete migration records, reset SQLite counters or manually
+mark the baseline applied. Resetting an empty environment is a separate, explicitly authorized
+maintenance operation requiring a verified backup and schema/data checks first.
+
+Before the first baseline deployment to **each** environment, privately inspect:
+
+```powershell
+npx wrangler d1 execute DB --env test --remote --command "SELECT name, sql FROM sqlite_master WHERE type='table'; PRAGMA table_info(user_preferences); SELECT id, name FROM d1_migrations ORDER BY id;"
+```
+
+Repeat with `--env production`. Compare `user_preferences` with the baseline SQL: text primary key
+`access_subject` and text `board`, both NOT NULL; integer `revision` NOT NULL DEFAULT 0 with CHECK
+(`revision >= 0`). `IF NOT EXISTS` does not validate or repair an existing table. If the schema
+differs or unexpected application tables remain, stop and plan an explicit corrective migration
+before deployment. Empty tables still require the same schema check. Do not share inspection output
+without reviewing it for private information.
+
+For databases already matching this schema, the standard TEST/PROD workflow applies and records 0001
+without data changes. A fresh database receives the same schema directly, without creating retired
+tables. Apply future schema changes using new, increasing migration filenames. Use only a release
+containing this baseline for this deployment; older tags retain their original migration files and
+are not baseline-aware.
+
+Inspect and back up TEST:
 
 ```powershell
 npx wrangler whoami
 npx wrangler d1 migrations list DB --env test --remote
-npx wrangler d1 execute DB --env test --remote --command "SELECT name FROM sqlite_master WHERE type='table'; PRAGMA table_info(accounts);"
+npx wrangler d1 execute DB --env test --remote --command "SELECT name FROM sqlite_master WHERE type='table';"
 New-Item -ItemType Directory -Force .wrangler\backups
-npx wrangler d1 export DB --env test --remote --output .wrangler\backups\test-before-access.sql
+$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+npx wrangler d1 export DB --env test --remote --output ".wrangler\backups\test-before-migration-$timestamp.sql"
 ```
 
-Repeat deliberately with `--env production` and a separate `production-before-access.sql`. Protect
-the backups: they contain legacy password hashes and private phrases. `.wrangler` is ignored; do not
-commit, upload to CI artifacts or share these files. Confirm export success and a secure recovery
-copy before proceeding. Use administrator credentials with **Account > D1 > Edit**. Remote export
-may temporarily make D1 unavailable; perform it at an agreed quiet time. Wrangler also prints a
-temporary signed download URL granting access to the export. Treat that URL as a secret: do not
-paste complete export output into chat or logs. Report only export success/failure. Use a fresh
-timestamped output filename when an earlier backup must be retained.
+Repeat deliberately with `--env production` and a separate `production-before-migration` filename.
+Protect the backups: they contain private data and may contain credentials from an unapplied schema
+upgrade. `.wrangler` is ignored; do not commit, upload to CI artifacts or share these files. Confirm
+export success and a secure recovery copy before proceeding. Use administrator credentials with
+**Account > D1 > Edit**. Remote export may temporarily make D1 unavailable; perform it at an agreed
+quiet time. Wrangler also prints a temporary signed download URL granting access to the export.
+Treat that URL as a secret: do not paste complete export output into chat or logs. Report only
+export success/failure. Use a fresh timestamped output filename when an earlier backup must be
+retained.
 
 If a remote D1 command returns **7403** (account invalid or unauthorized), stop before migration.
 Run `npx wrangler whoami` privately to inspect the active authentication method and account. For API
@@ -288,14 +311,11 @@ signed-in account and D1 access. A configured API token may take precedence over
 check local credential configuration privately without printing secrets. Do not delete databases or
 alter migration history to resolve an authorization error.
 
-Inspect the migration ledger and schema before applying. For an existing database, migration 0001
-must already be recorded and its schema must match the original migration. A fresh database applies
-0001 then 0002. If the tables exist but Wrangler reports 0001 pending, stop: inspect the actual
-`d1_migrations` schema/rows and compare every table, index and constraint with 0001. An authorized
-owner must review and baseline the matching already-applied migration using Wrangler's ledger schema
-before allowing 0002. If schemas differ, investigate and plan an explicit corrective migration. **Do
-not replay 0001, add blind `IF NOT EXISTS`, or blindly mark mismatched migrations applied.** Verify
-with `migrations list` again after any reviewed ledger repair.
+Inspect the migration ledger and schema before applying. Wrangler applies pending files in order,
+including on a fresh database. If existing tables conflict with a migration reported as pending,
+stop and compare the schema with that migration. An authorized owner must review any ledger repair
+or corrective migration. **Do not replay migrations, edit published SQL, or blindly mark migrations
+applied.** Verify with `migrations list` again after an authorized repair.
 
 After Access policies/configuration and backups are verified, the deployment workflow applies:
 
@@ -307,22 +327,10 @@ PROD runs the equivalent `--env production` command on promotion, after its own 
 maintenance preparation. Manual application is an operator recovery/setup action, not a substitute
 for the standard release workflow.
 
-Migration 0002:
-
-- Creates `user_preferences(access_subject, board, revision)` with a nonnegative revision.
-- Copies existing `id`, `username`, `board`, `revision` into `legacy_board_archive`.
-- Drops `sessions`, `account_tokens`, `login_limits`, then `accounts` in foreign-key-safe order.
-- Copies **no password hashes, session tokens, invitations or authentication versions** to the
-  archive.
-
-The archive protects prior phrases for deliberate owner-verified recovery. It is **not** an
-authentication authority and is never automatically matched to Access email or subject. Even a
-matching legacy username does not authorize recovery. Confirm the rightful owner and their verified
-Access subject independently, validate the old board, and perform a reviewed transfer with revision
-coordination so a live board is not silently overwritten. Back up before any recovery write. Only
-after all needed recovery is completed, or a verified owner confirms none is needed, may an
-authorized administrator explicitly remove the archive with `DROP TABLE legacy_board_archive`. There
-is no automatic cleanup. Agree phrase, archive and backup retention policies first.
+After applying the current baseline, the application uses
+`user_preferences(access_subject, board, revision)`. Keep `d1_migrations` and SQLite/Cloudflare
+internal tables intact. See [the storage model](ARCHITECTURE.md#current-storage-model) for the JSON
+board shape. Existing migrations remain immutable; schema changes require a new migration.
 
 ## 5. Deployment credentials and GitHub environments
 
@@ -363,9 +371,9 @@ Worker API contract after edge admission:
   JSON content type; an optional `Sec-Fetch-Site` must be `same-origin`. Success returns
   `{board, revision: previous + 1}`. An atomic subject/revision update rejects stale saves with 409.
 - Invalid/missing/expired/service identity is 401 with only `{error: string}` and no board. Errors
-  use visible pt-PT messages; missing configuration/infrastructure is 503. Removed custom
-  login/setup/logout routes are not implemented. Access itself may redirect unauthenticated edge
-  traffic before the Worker can return an API response.
+  use visible pt-PT messages; missing configuration/infrastructure is 503. Unknown API routes return
+  404 after authentication; unsupported methods on known routes return 405. Access itself may
+  redirect unauthenticated edge traffic before the Worker can return an API response.
 
 CSRF is SHA-256 of a versioned tuple containing the fixed team/audience and stable verified subject,
 not the rotating JWT or email. It is **not a secret/authentication credential**. Its stability
@@ -385,29 +393,77 @@ npx wrangler dev --env test --local --port 8787
 
 Local HTTP is permitted only on loopback (`localhost`, `127.0.0.1`, `[::1]`), **without bypassing
 identity verification**. Placeholder configuration returns 503; configured requests without a
-genuine signed Access assertion return 401. There is no local invitation, fake caregiver identity,
-password fixture or production verification-disable flag. Use the offline tests for authenticated
-backend development and the real Access-protected TEST host for Safari integration.
+genuine signed Access assertion return 401. Identity verification remains enabled locally. Use the
+offline tests for authenticated backend development and the real Access-protected TEST host for
+Safari integration.
 
 ```powershell
 npx vitest run tests\worker.test.ts tests\access.test.ts --coverage --coverage.include=src/access.ts --coverage.include=src/worker.ts
 ```
 
 Tests generate disposable RSA keys/JWTs in memory, mock only the configured HTTPS JWKS fetch and use
-real Miniflare D1 with both migrations. They verify
+real Miniflare D1 initialized directly from the current baseline. They verify
 forged/expired/wrong-issuer/wrong-audience/service rejection, subject isolation, renewal-stable
-CSRF, concurrency, migration archival and safe failures. Mocks are test dependencies, not deployment
+CSRF, concurrency, migration safety and safe failures. Mocks are test dependencies, not deployment
 configuration; no signed fixtures/private keys or face images are stored. Per-file coverage remains
 90% statements/lines/functions and 80% branches.
 
-Observability storage stays disabled. For a live diagnosis, use
-`npx wrangler tail --env test --format pretty`, reproduce once and stop. Share only the fixed
-`Access request failed` category, allowlisted exception type and known operation (`/api/session`,
-`/api/board`, `other`). Never share complete tail output, tokens, JWTs, emails, phrases, query
-strings or request bodies. `access-key-service` means JWKS/verification infrastructure is
-unavailable; `database-operation` means D1/SQLite failed; `unexpected-operation` covers other
-failures. No raw exception message is logged. A successful tail execution outcome does not mean the
-HTTP request succeeded.
+### Operational logs and privacy
+
+The shared Wrangler configuration enables persistent **Workers Logs** for TEST and PROD after their
+next deployments. It captures custom application logs at sampling rate 1, disables automatic
+invocation logs and tracing, and enables platform query-string redaction. Successful asset requests
+remain quiet; changing Access policies does not deploy this configuration.
+
+Open **Workers & Pages > the selected Worker > Observability > Logs**. Filter for the message
+`Worker request`, then by level, `operation`, `status` or `category` as supported by the dashboard.
+Select the correct Worker and time range. Each completed API request and each server failure emits
+one application entry:
+
+| Level | When                                                | Categories                                                                                |
+| ----- | --------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Info  | Successful API response                             | `success`                                                                                 |
+| Warn  | API rejection or stale save                         | `request-rejected`, `save-conflict`                                                       |
+| Error | API/asset server failure, including thrown failures | `service-unavailable`, `access-key-service`, `database-operation`, `unexpected-operation` |
+
+Fields are limited to category, known operation (`/api/session`, `/api/board`, `other`), HTTP status
+and rounded server duration in milliseconds. Unexpected failures also include an allowlisted
+exception type, never its raw message/stack. `access-key-service` means JWKS infrastructure is
+unavailable; `database-operation` means D1/SQLite failed. Missing D1/Access configuration produces
+`service-unavailable`. Duration measures response creation, not asset-body transfer time.
+
+Application entries contain no email, Access subject, IP address, phrase/board, revision, request or
+response body, headers, cookies, JWT, CSRF token, raw URL, unknown path or query string. Do not put
+sensitive data in URLs. **Cloudflare can enrich entries with platform metadata independently of our
+fields**, including request/Worker identifiers or URL paths. Disabling invocation logs and redacting
+query strings reduces collection; it is not a guarantee of anonymous storage. Access authentication
+events and requests rejected at the edge do not reach the Worker: inspect Access logs separately
+with appropriate administrator permissions. No browser speech/click telemetry is uploaded.
+
+Restrict dashboard log access to authorized operators. Do not enable tracing, invocation logs,
+Logpush or external destinations without a separate privacy/retention review. Monitor quotas and
+costs: sampling rate 1 requests all eligible entries, but platform limits can still sample/drop
+logs. Retention and quotas depend on the plan; consult the current
+[Workers Logs documentation](https://developers.cloudflare.com/workers/observability/logs/workers-logs/)
+and account settings rather than treating logs as a durable audit trail.
+
+For a temporary live diagnosis, use `npx wrangler tail --env test --format pretty` (or deliberately
+select `production`), reproduce once and stop. Share only the safe application fields above, not
+complete log/tail output or screenshots containing platform metadata. A successful invocation
+outcome does not mean the HTTP request succeeded: use the logged HTTP status. After deployment,
+confirm one API load/save produces Info, a rejected API call produces Warn, and successful assets
+produce no application entries. Do not break production to manufacture a server error; use offline
+tests for failure categories.
+
+### Repository information and disclosure
+
+Worker origins, the Access team hostname/application audience tags and D1 database IDs in the
+repository identify resources; they are not passwords or authorization credentials. Keep deployment
+API tokens, Access service secrets, caregiver emails, OTPs, assertions, private board exports and
+temporary signed export URLs out of source, documentation, issues and CI artifacts. Never publish
+real values as examples. Ignored local files and Cloudflare/GitHub dashboard settings require their
+own access review; a source review does not certify remote policies or the entire Git history. If a
+credential is ever exposed, revoke/rotate it before arranging any authorized history cleanup.
 
 ## 7. Deploy and verify
 
@@ -438,7 +494,7 @@ Start with the failed GitHub Actions step, not unrelated dashboard warnings.
 | Permission failure                   | Actual account, token expiry, Workers Scripts/D1 permissions.                                 |
 | API 503 immediately                  | Replace Access placeholders, verify exact team/AUD and DB binding/schema.                     |
 | Migration table already exists       | Inspect schema and ledger; back up and review baseline, never blind `IF NOT EXISTS`.          |
-| Old Worker fails after 0002          | Complete forward deployment during maintenance; old password Worker is incompatible.          |
+| Worker/schema incompatibility        | Complete the compatible forward deployment during maintenance; do not blindly revert code.    |
 | Email code does not arrive           | Allow email in the correct environment, enable OTP, check spam/email gateway.                 |
 | Smoke redirect/401/403 before assets | Both service secrets, expiry and separate Service Auth policy on that environment.            |
 | Smoke `/api/session` returns 200     | Unsafe human/service identity separation; stop promotion and investigate.                     |

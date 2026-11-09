@@ -5,8 +5,7 @@ user, mounting position and lighting before relying on this experimental prototy
 
 ## Commands
 
-Use Node.js **22.22.2+** (see `.nvmrc`). `npm ci` installs dependencies and hooks; no vision
-model/WASM download is needed.
+Use Node.js **22.22.2+** (see `.nvmrc`). `npm ci` installs dependencies and hooks.
 
 | Command                                      | Purpose                                                  |
 | -------------------------------------------- | -------------------------------------------------------- |
@@ -34,6 +33,20 @@ release/deployment policy. Regressions check that app camera, custom tracking an
 infrastructure are absent. Each included file requires **90% statements/lines/functions and 80%
 branches**. Do not lower gates; the ignored HTML report is `coverage/index.html`.
 
+Worker database tests initialize real Miniflare D1 directly from `0001_user_preferences.sql`. They
+check the exact application table/columns, required fields, default revision, primary-key uniqueness
+and nonnegative revisions. Reapplying the baseline preserves an existing board/revision. Retired
+application tables and migrations are not used to initialize test databases. An existing remote
+schema must be compared with the baseline before deployment; `IF NOT EXISTS` alone cannot detect a
+mismatched table.
+
+Worker logging regressions verify one Info per API success, Warn for rejected requests/conflicts,
+Error for configuration/infrastructure/asset server failures, and no successful-asset noise. Exact
+structured-field assertions and private input markers check that identities, bodies, headers, raw
+paths/query strings and exception messages are not emitted. Packaging tests guard persistent custom
+logs, query redaction and disabled invocation logs/traces. These tests cover application fields and
+configuration, not Cloudflare's attached metadata, live retention or Access dashboard policy.
+
 ```sh
 npm test -- tests/main.test.ts tests/speech.test.ts tests/worker.test.ts --coverage.enabled=false
 ```
@@ -49,9 +62,9 @@ speech authorization. No simulated gaze implementation ships.
 2. Open **Settings > Accessibility > Eye Tracking** on a supported device. Labels vary by system
    language/version; search Settings if needed.
 3. Follow Apple's on-device calibration. Use a stable mount, a clear front camera and even lighting;
-   follow the system's positioning guidance rather than the removed app face-size limits.
-4. Adjust system pointer/dwell options to the user's needs. The website imposes no extra two-second
-   timer, calibration test or custom tracking header.
+   follow the system's positioning guidance.
+4. Adjust system pointer/dwell options to the user's needs. The website uses standard button
+   activation without adding its own dwell timer or calibration.
 5. Open HTTPS TEST in Safari. Have a caregiver test sound by touch first, then test standard button
    activation using native Eye Tracking.
 
@@ -60,8 +73,8 @@ native tracking in the caregiver form. No app-camera permission is necessary: sy
 uses the camera independently of website permissions.
 
 TEST and PROD require Cloudflare Access login. Follow [DEPLOYMENT.md](DEPLOYMENT.md), use an allowed
-caregiver email and complete the email-code login. There is no second app password or invitation. Do
-not inject service-token secrets into Safari or app code.
+caregiver email and complete the email-code login. Do not inject service-token secrets into Safari
+or app code.
 
 Record **app version, `release.json` tag/SHA, model/iPadOS, browser, system dwell settings,
 orientation and results** before a later merge replaces TEST. TEST and PROD accounts/data are
@@ -72,9 +85,8 @@ independent.
 Use non-sensitive phrases. Stop if selections are wrong; keep another communication method
 available. No face images or recordings are needed for testing.
 
-Earlier custom-auth local browser results do not validate the Access replacement. Real Access
-email-code login, long-session behavior and logout must be tested on configured HTTPS TEST before
-PROD promotion; mocked browser identities are UI evidence only.
+Real Access email-code login, long-session behavior and logout must be tested on configured HTTPS
+TEST before PROD promotion; mocked browser identities are UI evidence only.
 
 - [ ] Four speaking targets and catalogue/caregiver controls fit in portrait and landscape,
       including reduced Safari viewport height and 100-character phrases.
@@ -88,10 +100,10 @@ PROD promotion; mocked browser identities are UI evidence only.
       board catalogue button has larger text, and experimental status is beside the footer version.
       The board catalogue button adapts from 72px to 96px.
 - [ ] New cloud boards start with yes/no/bathroom/pain and the prescribed first twelve templates.
-      Old browser storage is not imported. Caregiver-selected order is not reset on login.
-- [ ] Allow a caregiver email in TEST Access, sign in once and confirm there is no second password
-      form. The home logo is absent on the board. An unallowed email and an expired/forged token
-      cannot read or write preferences; automation tokens cannot act as caregivers.
+      Caregiver-selected order is not reset on login.
+- [ ] Allow a caregiver email in TEST Access, complete login and load the board. The home logo is
+      absent on the board. An unallowed email and an expired/forged token cannot read or write
+      preferences; automation tokens cannot act as caregivers.
 - [ ] Reorder speaking positions and catalogue independently; add at the start/middle/end. Reload
       and sign in on another browser to confirm exactly the last saved order/assignments.
 - [ ] Simultaneous saves from two browsers reject the stale revision without overwriting either
@@ -100,8 +112,9 @@ PROD promotion; mocked browser identities are UI evidence only.
 - [ ] Refresh after Access application-token renewal and verify saves still work. Removing an
       allowed user/revoking their Access sessions prevents subsequent login; existing JWTs may
       remain valid until Access enforces revocation/expiry. Confirm configured duration on-device.
-- [ ] D1 migration removes obsolete password/token/session tables while preserving a board-only
-      archive. No old username/email is implicitly adopted as a verified Access identity.
+- [ ] The current D1 baseline preserves existing Access boards/revisions and migration records.
+      Verify the resulting schema against the current storage model and follow baseline adoption in
+      [DEPLOYMENT.md](DEPLOYMENT.md#4-back-up-and-migrate-d1-with-a-maintenance-window).
 - [ ] Sound test and all touch phrases work; check actual pt-PT accent, volume and missing-voice
       errors.
 - [ ] Native Eye Tracking activates each speaking button at least ten times. Record intended
@@ -119,7 +132,7 @@ PROD promotion; mocked browser identities are UI evidence only.
       highlights the updated position in green; a failed save keeps the replacement choices.
 - [ ] Touch, keyboard and ordinary click activation give brief color feedback without moving targets
       or delaying speech/navigation. Reduced-motion mode removes animation while retaining pressed
-      colors and visible keyboard focus. The redundant account-storage footer text is absent.
+      colors and visible keyboard focus.
 - [ ] Caregiver additions persist; empty/duplicate/overlong input is rejected and text is literal.
       The caregiver manages system tracking if needed during writing.
 - [ ] Backgrounding/leaving stops speech; returning preserves saved phrases. Check speech
@@ -132,7 +145,7 @@ PROD promotion; mocked browser identities are UI evidence only.
 No physical iPad acceptance has been established by automated tests. Native tracking is not clinical
 validation or proof of ongoing reliability.
 
-### Viewport-fit evidence
+### Viewport-fit checks
 
 The iPad (A16) display is 1640×2360 physical pixels
 ([Apple specifications](https://www.apple.com/ipad-11/specs/)). Desktop browser checks use nominal
@@ -142,32 +155,25 @@ Check board, catalogue, replacement and writing at 820×1180, 820×1000, 1180×8
 768×900 and 1024×600. Require no horizontal/vertical page overflow, no button/input text clipping,
 and all controls/status/footer bounds inside the viewport. Include the Access entry/error screen,
 caregiver ordering and the expanded six-option panel. Repeat with 100-character phrases and
-simultaneous speech/error feedback. Previous desktop checks cover the pre-account four-screen
-layout; account changes require new validation and do not establish physical-device acceptance.
-
-For the Access change, desktop browser checks with mocked API sessions covered those seven viewports
-on the board, expanded caregiver panel/system help, catalogue, replacement, phrase entry and both
-ordering screens, with 100-character phrases and simultaneous feedback. Page/control bounds remained
-inside the viewport. The Access entry/error screen with its logo and login link also fitted all
-seven viewports, including a visible authentication error and no password/setup form. This is UI
-evidence, not live Access/D1 authentication or physical iPad acceptance; native dropdown expansion
-and the on-screen keyboard still need device testing.
+simultaneous speech/error feedback. Use mocked API sessions for isolated layout checks; test real
+Access login and persistence separately on HTTPS TEST. Mocked identities do not establish
+authentication or physical-device acceptance. Native dropdown expansion and the on-screen keyboard
+need device testing.
 
 On the actual iPad, repeat with Safari toolbars shown/hidden and after rotation. Software keyboard,
 Split View and enlarged text/zoom alter available space and need separate physical acceptance; do
 not claim that desktop tests establish those conditions or all possible content lengths.
 
-For the replacement-feedback update, mocked-session browser checks covered the board, catalogue and
-replacement screens at all seven viewports above with 100-character phrases and no page overflow or
-out-of-viewport controls. Default replacement labels were centered on both axes with dashed borders.
-Checks also confirmed successful-save highlighting, click-animation cleanup, stationary targets and
-zero-duration feedback in reduced-motion mode. These checks do not validate live Access/D1 or
-physical iPad Eye Tracking.
+Check replacement labels are centered on both axes with dashed borders, including 100-character
+phrases. Confirm successful-save highlighting, click-animation cleanup, stationary targets and
+zero-duration feedback in reduced-motion mode. Record the version/tag/SHA with results; rerun these
+checks when the UI changes.
 
 ## Testing together
 
 Share the version/tag/SHA, steps, system settings and observed outcomes, without sensitive phrases
-or face images. There is no app diagnostic collection or cloud report storage.
+or face images. Browser/device telemetry is not uploaded; minimal Worker operational logs are
+described in [DEPLOYMENT.md](DEPLOYMENT.md#operational-logs-and-privacy).
 
 The assistant can inspect a shared desktop browser but cannot remotely control your iPad. Desktop
 checks validate layout and ordinary clicks, not physical iPad Eye Tracking or camera behavior.

@@ -181,31 +181,57 @@ async function route(request: Request, environment: Environment): Promise<Respon
   return Response.json({ board, revision: input.revision + 1 });
 }
 
-function reportFailure(error: unknown, pathname: string): void {
+function reportRequest(status: number, pathname: string, started: number, error?: unknown): void {
+  const api = pathname === '/api' || pathname.startsWith('/api/');
+
+  if (!api && status < 500) return;
+
   const name = error instanceof Error ? error.name : '';
   const errorType = ['Error', 'OperationError', 'TypeError', 'RangeError'].includes(name)
     ? name
     : 'other';
   const category =
-    error instanceof InfrastructureError
+    error instanceof InfrastructureError &&
+    ['access-key-service', 'database-operation'].includes(error.category)
       ? error.category
       : error instanceof Error && /D1_ERROR|D1_EXEC_ERROR|SQLITE_/i.test(error.message)
         ? 'database-operation'
-        : 'unexpected-operation';
+        : error !== undefined && !(error instanceof AccessError)
+          ? 'unexpected-operation'
+          : status >= 500
+            ? 'service-unavailable'
+            : status === 409
+              ? 'save-conflict'
+              : status >= 400
+                ? 'request-rejected'
+                : 'success';
   const operation = ['/api/session', '/api/board'].includes(pathname) ? pathname : 'other';
+  const entry = {
+    category,
+    durationMs: Math.max(0, Math.round(performance.now() - started)),
+    ...(error !== undefined && !(error instanceof AccessError) ? { errorType } : {}),
+    message: 'Worker request',
+    operation,
+    status,
+  };
 
-  console.error('Access request failed', { category, errorType, operation });
+  if (status >= 500) console.error(entry);
+  else if (status >= 400) console.warn(entry);
+  else console.info(entry);
 }
 
 async function serve(request: Request, environment: Environment): Promise<Response> {
-  try {
-    return protect(await route(request, environment));
-  } catch (error) {
-    if (!(error instanceof AccessError)) {
-      reportFailure(error, new URL(request.url).pathname);
-    }
+  const started = performance.now();
+  const pathname = new URL(request.url).pathname;
+  let response: Response;
+  let failure: unknown;
 
-    return protect(
+  try {
+    response = protect(await route(request, environment));
+  } catch (error) {
+    failure = error;
+
+    response = protect(
       Response.json(
         {
           error:
@@ -217,6 +243,10 @@ async function serve(request: Request, environment: Environment): Promise<Respon
       ),
     );
   }
+
+  reportRequest(response.status, pathname, started, failure);
+
+  return response;
 }
 
 export default { fetch: serve };
