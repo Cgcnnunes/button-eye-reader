@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.3
+
+- Name the PROD validation job's checkout and Node setup steps for clearer Actions logs.
+- Remove the generic account-save notification after successful saves, clearing previous notices
+  while retaining save errors and action-specific feedback.
+- Clear the speech status when speech ends instead of displaying the redundant ready-for-next-phrase
+  message; retain active speech feedback and voice error notifications.
+
 ## 0.6.2
 
 - Fix the PROD deployment `validate` job failing with `ERR_MODULE_NOT_FOUND` for `jsonc-parser` by

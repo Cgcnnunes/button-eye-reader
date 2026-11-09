@@ -92,7 +92,7 @@ function notify(message: string): void {
 }
 
 const speaker = new Speaker(notify, (busy) => {
-  if (!busy && account) element('spoken').textContent = 'Pronto para a próxima frase.';
+  if (!busy && account) element('spoken').textContent = '';
 });
 
 function phraseFor(id: string): Phrase {
@@ -295,7 +295,7 @@ async function persist(next: Board): Promise<boolean> {
 
     account = { ...account, ...saved };
 
-    notify('Alterações guardadas na sua conta.');
+    notify('');
 
     return true;
   } catch (error) {

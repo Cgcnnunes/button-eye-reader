@@ -57,7 +57,8 @@ Wrangler applies the baseline. Subsequent deployments apply only new migrations.
   separate navigation. A 44px bottom-left caregiver toggle opens a low, full-width panel with
   labelled sound, add-phrase and system Eye Tracking help options. Add-phrase is offered only on the
   board. Close/Escape restores toggle focus; navigation closes the panel. The idle speech status
-  starts empty. This is workflow separation, not a touch-only gate or system tracking toggle.
+  starts empty and clears when speech ends, without a ready-for-next-phrase message. This is
+  workflow separation, not a touch-only gate or system tracking toggle.
 - The top header shows only the question/hint. Speaking buttons show horizontally/vertically
   centered phrase text without an action subtitle; the board catalogue button has larger text.
   Experimental status stays beside the footer version; the board catalogue button adapts from 72px
@@ -81,7 +82,8 @@ Wrangler applies the baseline. Subsequent deployments apply only new migrations.
   system-input lock: the website cannot disable Apple's Eye Tracking in the form.
 - Persist phrases successfully before changing the in-memory board. Saves carry a revision and CSRF
   token. Failures/conflicts leave the displayed board unchanged and show recovery guidance; there is
-  no offline/local fallback or silent last-writer-wins synchronization.
+  no offline/local fallback or silent last-writer-wins synchronization. Successful saves clear
+  previous notices without a generic account-save message; action-specific feedback remains.
 - Access protects each entire hostname before the Worker runs. Its login UI appears before the
   branded application home; a valid human identity opens the existing unbranded board. The
   application's entry/error screen retains the logo and a link to `/app`. An expired Access session
