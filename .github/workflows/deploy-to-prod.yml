@@ -73,7 +73,9 @@ jobs:
           EXPECTED_SHA: ${{ needs.validate.outputs.sha }}
 
       - name: Apply PROD database migrations
-        run: npx wrangler d1 migrations apply DB --remote --env production
+        run: |
+          node scripts/deployment.ts access production
+          npx wrangler d1 migrations apply DB --remote --env production
 
       - name: Deploy to PROD
         run: npx wrangler deploy --env production
@@ -83,6 +85,8 @@ jobs:
       - name: Smoke test deployment
         run: node scripts/deployment.ts smoke production
         env:
+          CLOUDFLARE_ACCESS_CLIENT_ID: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_ID }}
+          CLOUDFLARE_ACCESS_CLIENT_SECRET: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_SECRET }}
           DEPLOYMENT_OUTPUT: ${{ runner.temp }}/production-deploy.jsonl
 
       - name: Promote deployment
