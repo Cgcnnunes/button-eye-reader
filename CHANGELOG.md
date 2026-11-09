@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.2
+
+- Add privacy-safe diagnostics for unexpected API failures without logging raw exceptions,
+  credentials, tokens or phrases; document live TEST troubleshooting and the meaning of tail's
+  successful execution outcome.
+
 ## 0.5.1
 
 - Document the complete new-user workflow and distinguish optional Access email permission from

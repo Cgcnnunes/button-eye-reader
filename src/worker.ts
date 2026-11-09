@@ -269,12 +269,50 @@ async function route(request: Request, environment: Environment): Promise<Respon
   return new Response(response.body, { headers, status: response.status });
 }
 
+function reportFailure(error: unknown, pathname: string): void {
+  const message = error instanceof Error ? error.message : '';
+  const name = error instanceof Error ? error.name : '';
+  const errorType = [
+    'Error',
+    'OperationError',
+    'NotSupportedError',
+    'TypeError',
+    'RangeError',
+    'InvalidAccessError',
+  ].includes(name)
+    ? name
+    : 'UnknownError';
+  const category =
+    /PBKDF2/i.test(message) && /iteration|limit|100.?000/i.test(message)
+      ? 'password-kdf-limit'
+      : /D1_ERROR|D1_EXEC_ERROR|SQLITE_/i.test(message)
+        ? 'database-operation'
+        : /PBKDF2|deriveBits|crypto/i.test(message)
+          ? 'cryptography-operation'
+          : 'unexpected-operation';
+  const operation = [
+    '/api/setup',
+    '/api/login',
+    '/api/session',
+    '/api/logout',
+    '/api/board',
+  ].includes(pathname)
+    ? pathname
+    : 'other';
+
+  console.error('Account request failed', { category, errorType, operation });
+}
+
 async function serve(request: Request, environment: Environment): Promise<Response> {
   try {
     return protect(await route(request, environment));
   } catch (error) {
     const url = new URL(request.url);
     const app = url.pathname === '/app' || url.pathname.startsWith('/app/');
+
+    if (!(error instanceof AccountError)) {
+      reportFailure(error, url.pathname);
+    }
 
     if (
       error instanceof AccountError &&

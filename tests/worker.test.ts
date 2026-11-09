@@ -631,4 +631,94 @@ describe('account Worker with real local D1', () => {
 
     expect(await response.text()).not.toContain('private');
   }, 30_000);
+
+  it('logs only allowlisted diagnostics for unexpected failures without leaking request or error data', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const cases = [
+      {
+        category: 'password-kdf-limit',
+        error: new DOMException(
+          'PBKDF2 iterations above 100000 are unsupported; secret-token',
+          'NotSupportedError',
+        ),
+        errorType: 'NotSupportedError',
+      },
+      {
+        category: 'database-operation',
+        error: new Error('D1_ERROR: private SQL and phrase'),
+        errorType: 'Error',
+      },
+      {
+        category: 'cryptography-operation',
+        error: new DOMException('deriveBits failed with private-password', 'OperationError'),
+        errorType: 'OperationError',
+      },
+      {
+        category: 'unexpected-operation',
+        error: new Error('private database details'),
+        errorType: 'Error',
+      },
+    ];
+
+    for (const example of cases) {
+      const broken: Database = {
+        batch: () => Promise.reject(example.error),
+        prepare: () => {
+          throw example.error;
+        },
+      };
+      const response = await worker.fetch(
+        new Request(`${origin}/api/setup?private-token`, {
+          body: JSON.stringify({ password: 'private-password', token: 'private-token' }),
+          headers: { 'content-type': 'application/json', origin },
+          method: 'POST',
+        }),
+        { ASSETS: assets, DB: broken },
+      );
+
+      expect(response.status).toBe(503);
+
+      expect(await response.json()).toEqual({
+        error: 'Não foi possível concluir o pedido. Tente novamente.',
+      });
+
+      expect(log).toHaveBeenLastCalledWith('Account request failed', {
+        category: example.category,
+        errorType: example.errorType,
+        operation: '/api/setup',
+      });
+    }
+
+    const custom = new Error('private custom exception');
+
+    custom.name = 'secret-name';
+
+    const broken: Database = {
+      batch: () => Promise.reject(custom),
+      prepare: () => {
+        throw custom;
+      },
+    };
+
+    await worker.fetch(
+      new Request(`${origin}/api/private-user?secret-token`, {
+        headers: { cookie: `${COOKIE_NAME}=${'a'.repeat(64)}` },
+      }),
+      { ASSETS: assets, DB: broken },
+    );
+
+    expect(log).toHaveBeenLastCalledWith('Account request failed', {
+      category: 'unexpected-operation',
+      errorType: 'UnknownError',
+      operation: 'other',
+    });
+
+    expect(JSON.stringify(log.mock.calls)).not.toMatch(/private|secret|password"|token"|phrase/);
+
+    log.mockClear();
+
+    await worker.fetch(new Request(`${origin}/api/session`), { ASSETS: assets });
+
+    expect(log).not.toHaveBeenCalled();
+  });
 });
