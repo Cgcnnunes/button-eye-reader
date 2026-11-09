@@ -43,6 +43,12 @@ flowchart LR
   centered phrase text without an action subtitle; the board catalogue button has larger text.
   Experimental status stays beside the footer version; the board catalogue button adapts from 72px
   to 96px as viewport height permits.
+- Replacement keeps only centered phrase text inside four tinted, dashed-border targets, with the
+  selected phrase and instructions above them and descriptive accessible names. Only a successful
+  save marks the updated speaking position in green. The footer omits the redundant storage message.
+- Standard clicks give brief color/inset feedback on buttons without moving or resizing targets,
+  adding activation delays or changing speech busy guards. Reduced-motion preferences disable the
+  feedback animation; pressed colors, keyboard focus and the saved-position highlight remain.
 - Tablet layouts use the dynamic viewport height and shrinkable grid rows across all four screens.
   Phrase typography follows the available grid height; the caregiver textarea cannot be manually
   resized past its allocated space. No overflow hiding is used to conceal clipped content.

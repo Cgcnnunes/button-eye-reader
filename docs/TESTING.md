@@ -114,6 +114,12 @@ PROD promotion; mocked browser identities are UI evidence only.
 - [ ] Pagination arrows and text share a vertical center; previous/next use a distinct blue while
       the return control keeps its original color.
 - [ ] Navigate, select and replace phrases with native input; reload and confirm persistence.
+- [ ] Replacement shows four tinted targets with dashed borders and only centered phrase text. The
+      header identifies the chosen phrase; cancel leaves the board unchanged. Only a successful save
+      highlights the updated position in green; a failed save keeps the replacement choices.
+- [ ] Touch, keyboard and ordinary click activation give brief color feedback without moving targets
+      or delaying speech/navigation. Reduced-motion mode removes animation while retaining pressed
+      colors and visible keyboard focus. The redundant account-storage footer text is absent.
 - [ ] Caregiver additions persist; empty/duplicate/overlong input is rejected and text is literal.
       The caregiver manages system tracking if needed during writing.
 - [ ] Backgrounding/leaving stops speech; returning preserves saved phrases. Check speech
@@ -150,6 +156,13 @@ and the on-screen keyboard still need device testing.
 On the actual iPad, repeat with Safari toolbars shown/hidden and after rotation. Software keyboard,
 Split View and enlarged text/zoom alter available space and need separate physical acceptance; do
 not claim that desktop tests establish those conditions or all possible content lengths.
+
+For the replacement-feedback update, mocked-session browser checks covered the board, catalogue and
+replacement screens at all seven viewports above with 100-character phrases and no page overflow or
+out-of-viewport controls. Default replacement labels were centered on both axes with dashed borders.
+Checks also confirmed successful-save highlighting, click-animation cleanup, stationary targets and
+zero-duration feedback in reduced-motion mode. These checks do not validate live Access/D1 or
+physical iPad Eye Tracking.
 
 ## Testing together
 
