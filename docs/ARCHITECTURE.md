@@ -89,6 +89,9 @@ reported; neither accent nor continuing audio authorization is guaranteed.
 - TEST and PROD are separate Workers/origins and D1 databases. Both require Access applications with
   human **Allow** policies and separate automation **Service Auth** policies. Deployments must pin
   the team domain and their distinct application audiences before merging.
+- Wrangler routes every asset request through the Worker so security/no-store headers also apply to
+  SPA asset fallbacks. The top-level local identity configuration remains a placeholder, never an
+  authentication bypass.
 - Environment-specific Access service secrets appear only in that environment's smoke step, never in
   browser assets/builds. Smoke tests validate build identity and API rejection of service
   credentials, not a human login. The old custom tracking header has no role.
