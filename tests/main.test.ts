@@ -294,9 +294,11 @@ describe('standard accessible phrase board', () => {
 
     mocks.changed(true);
 
+    expect(text('spoken')).toContain('A dizer:');
+
     mocks.changed(false);
 
-    expect(text('spoken')).toBe('Pronto para a próxima frase.');
+    expect(text('spoken')).toBe('');
 
     button('sound').click();
 
@@ -356,6 +358,8 @@ describe('standard accessible phrase board', () => {
 
     button('choose:template-4').click();
 
+    mocks.notify('Aviso anterior');
+
     button('replace:0').click();
 
     await vi.waitFor(() => {
@@ -371,6 +375,8 @@ describe('standard accessible phrase board', () => {
     );
 
     expect(text('spoken')).toContain('Botão atualizado');
+
+    expect(text('notice')).toBe('');
 
     expect(button('speak:0').classList.contains('updated-target')).toBe(true);
 
