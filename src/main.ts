@@ -38,7 +38,6 @@ function mountBoard(): void {
       <section class="guidance" aria-label="Instruções"><div><h1 id="screen-title"></h1><p id="screen-hint"></p></div></section>
     </header>
     <main id="content"></main>
-    <div class="feedback"><p id="spoken" role="status" aria-live="polite"></p><p id="notice" role="alert"></p></div>
     <footer>
       <section id="caregiver-panel" hidden aria-labelledby="caregiver-label">
         <div class="panel-heading">
@@ -59,7 +58,7 @@ function mountBoard(): void {
       <div class="footer-bar">
         <div class="caregiver-entry">
           <button id="caregiver-toggle" type="button" class="helper" aria-expanded="false" aria-controls="caregiver-panel">Acompanhante · Opções</button>
-          <span id="caregiver-hint">Peça a quem acompanha para aceder às configurações.</span>
+          <div class="feedback" tabindex="0" role="region" aria-label="Estado e avisos"><p id="spoken" role="status" aria-live="polite"></p><p id="notice" role="alert"></p></div>
         </div>
         <div class="privacy"><span class="release-label"><small class="experimental">EXPERIMENTAL</small><span>v${__APP_VERSION__}</span></span></div>
       </div>
@@ -433,8 +432,6 @@ function setCaregiverPanel(open: boolean): void {
   element('caregiver-panel').hidden = !open;
 
   element('caregiver-toggle').setAttribute('aria-expanded', String(open));
-
-  element('caregiver-hint').hidden = open;
 
   element('shell').classList.toggle('caregiver-open', open);
 
