@@ -33,7 +33,15 @@ describe('mandatory lint and hook configuration', () => {
 
     expect(tablet).toContain('height: 100dvh');
 
-    expect(tablet).toContain('grid-template-rows: auto minmax(0, 1fr) auto auto');
+    expect(tablet).toContain('grid-template-rows: auto minmax(0, 1fr) auto;');
+
+    expect(styles).toMatch(/\.feedback\s*\{[^}]*block-size: 44px;[^}]*overflow: auto;/);
+
+    expect(styles).toMatch(/\.feedback\s*\{[^}]*align-content: safe center;/);
+
+    expect(styles).toMatch(/#spoken:empty \+ #notice\s*\{\s*margin-top: 0;/);
+
+    expect(styles).toMatch(/\.caregiver-entry\s*\{[^}]*flex-wrap: nowrap;/);
 
     expect(tablet).toContain('container-type: size');
 
@@ -44,6 +52,34 @@ describe('mandatory lint and hook configuration', () => {
     expect(styles).not.toMatch(/overflow(?:-x|-y)?:\s*(?:hidden|clip)/);
 
     expect(tablet).not.toContain('min-height: 380px');
+  });
+
+  it('themes only the feedback scrollbar with standard and WebKit styles', () => {
+    const styles = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8');
+
+    expect(styles).toMatch(
+      /\.feedback\s*\{[^}]*scrollbar-color: #4b6075 transparent;[^}]*scrollbar-width: thin;/,
+    );
+
+    expect(styles).toMatch(/\.feedback::-webkit-scrollbar\s*\{[^}]*width: 10px;/);
+
+    expect(styles).toMatch(
+      /@supports selector\(::-webkit-scrollbar\)\s*\{\s*\.feedback\s*\{\s*scrollbar-color: auto;\s*scrollbar-width: auto;/,
+    );
+
+    expect(styles).toMatch(/\.feedback::-webkit-scrollbar-track\s*\{[^}]*background: transparent;/);
+
+    expect(styles).toMatch(
+      /\.feedback::-webkit-scrollbar-button\s*\{\s*display: none;\s*width: 0;\s*height: 0;/,
+    );
+
+    expect(styles).toMatch(
+      /\.feedback::-webkit-scrollbar-thumb\s*\{[^}]*background: #4b6075;[^}]*border-radius: 8px;/,
+    );
+
+    expect(styles).toMatch(
+      /\.feedback::-webkit-scrollbar-thumb:hover\s*\{[^}]*background: #102b46;/,
+    );
   });
 
   it('keeps static TEST and PROD free of custom tracking and report infrastructure', () => {

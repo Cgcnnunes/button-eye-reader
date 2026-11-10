@@ -169,6 +169,12 @@ phrases. Confirm successful-save highlighting, click-animation cleanup, stationa
 zero-duration feedback in reduced-motion mode. Record the version/tag/SHA with results; rerun these
 checks when the UI changes.
 
+Measure all four speaking targets before, during and after speech feedback. Their x/y/width/height
+must remain identical when status and error text appears or clears. Feedback replaces the helper
+sentence beside the caregiver footer toggle, including while its panel is open. The header retains
+its question/hint layout. Long notices must remain readable by scrolling in the fixed-height region,
+including keyboard focus, without resizing targets or overlapping controls.
+
 ## Testing together
 
 Share the version/tag/SHA, steps, system settings and observed outcomes, without sensitive phrases

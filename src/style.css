@@ -27,6 +27,10 @@ textarea:focus-visible {
   outline: 5px solid #ad5100;
   outline-offset: 5px;
 }
+.feedback:focus-visible {
+  outline: 3px solid #ad5100;
+  outline-offset: 2px;
+}
 button:disabled {
   opacity: 0.4;
   cursor: default;
@@ -238,7 +242,45 @@ main {
   }
 }
 .feedback {
-  min-height: 44px;
+  display: grid;
+  align-content: safe center;
+  block-size: 44px;
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  scrollbar-color: #4b6075 transparent;
+  scrollbar-width: thin;
+}
+@supports selector(::-webkit-scrollbar) {
+  .feedback {
+    scrollbar-color: auto;
+    scrollbar-width: auto;
+  }
+}
+.feedback::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.feedback::-webkit-scrollbar-track {
+  background: transparent;
+}
+.feedback::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.feedback::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.feedback::-webkit-scrollbar-thumb {
+  background: #4b6075;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background-clip: padding-box;
+}
+.feedback::-webkit-scrollbar-thumb:hover {
+  background: #102b46;
 }
 #spoken {
   font-size: 16px;
@@ -270,6 +312,14 @@ footer {
 }
 .footer-bar {
   justify-content: space-between;
+}
+.caregiver-entry {
+  flex: 1;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+#caregiver-toggle {
+  flex: none;
 }
 #caregiver-panel {
   margin-bottom: 12px;
@@ -442,7 +492,7 @@ a:focus-visible {
     height: 100dvh;
     min-height: 0;
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
     gap: clamp(8px, 1.8dvh, 20px);
     padding: max(12px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
       max(12px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
@@ -493,10 +543,6 @@ a:focus-visible {
   .guidance p {
     font-size: clamp(13px, 2.2dvh, 17px);
   }
-  .feedback {
-    min-height: 0;
-    overflow-wrap: anywhere;
-  }
   #spoken,
   #notice {
     font-size: clamp(12px, 2dvh, 16px);
@@ -510,10 +556,6 @@ a:focus-visible {
   }
   .caregiver-open {
     gap: 8px;
-  }
-  .caregiver-entry {
-    flex: 1;
-    min-width: 0;
   }
   .caregiver-open main {
     gap: 20px;
@@ -571,6 +613,9 @@ a:focus-visible {
     padding: 8px 12px;
     font-size: clamp(16px, 3dvh, 30px);
   }
+}
+#spoken:empty + #notice {
+  margin-top: 0;
 }
 @media (max-width: 699px) {
   .shell {

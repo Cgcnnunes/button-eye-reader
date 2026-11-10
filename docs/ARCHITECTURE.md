@@ -59,10 +59,18 @@ Wrangler applies the baseline. Subsequent deployments apply only new migrations.
   board. Close/Escape restores toggle focus; navigation closes the panel. The idle speech status
   starts empty and clears when speech ends, without a ready-for-next-phrase message. This is
   workflow separation, not a touch-only gate or system tracking toggle.
-- The top header shows only the question/hint. Speaking buttons show horizontally/vertically
-  centered phrase text without an action subtitle; the board catalogue button has larger text.
-  Experimental status stays beside the footer version; the board catalogue button adapts from 72px
-  to 96px as viewport height permits.
+- Speech status and action/error notices replace the caregiver helper sentence beside the footer
+  toggle in a fixed 44px-high region. Messages cannot grow this region or resize speaking targets;
+  long messages remain available through keyboard-focusable scrolling rather than clipping or
+  overlaying controls. Short feedback is vertically centered beside the toggle below the footer
+  divider; overflowing text starts at the top so it remains fully scrollable. Feedback remains
+  visible when the caregiver panel is open. Its scrollbar uses a blue-grey thumb on a transparent
+  track, without arrows in WebKit/Chromium. Standard CSS supports other browsers; system overlay
+  scrollbars may retain platform styling.
+- The header shows the question/hint. Speaking buttons show horizontally/vertically centered phrase
+  text without an action subtitle; the board catalogue button has larger text. Experimental status
+  stays beside the footer version; the board catalogue button adapts from 72px to 96px as viewport
+  height permits.
 - Replacement keeps only centered phrase text inside four tinted, dashed-border targets, with the
   selected phrase and instructions above them and descriptive accessible names. Only a successful
   save marks the updated speaking position in green.

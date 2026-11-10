@@ -224,7 +224,9 @@ describe('standard accessible phrase board', () => {
 
     expect(button('caregiver-toggle').getAttribute('aria-expanded')).toBe('true');
 
-    expect(document.getElementById('caregiver-hint')?.hidden).toBe(true);
+    expect(document.querySelector('.caregiver-entry .feedback')?.hasAttribute('hidden')).toBe(
+      false,
+    );
 
     expect(document.activeElement).toBe(button('caregiver-close'));
 
@@ -399,6 +401,20 @@ describe('standard accessible phrase board', () => {
     expect(document.querySelector('header #screen-title')?.tagName).toBe('H1');
 
     expect(document.querySelector('header #screen-hint')).not.toBeNull();
+
+    expect(document.querySelector('.caregiver-entry .feedback #spoken')).not.toBeNull();
+
+    expect(document.querySelector('.caregiver-entry .feedback #notice')).not.toBeNull();
+
+    expect(document.querySelector('.feedback')?.getAttribute('tabindex')).toBe('0');
+
+    expect(document.querySelector('header .feedback, main .feedback')).toBeNull();
+
+    expect(document.getElementById('caregiver-hint')).toBeNull();
+
+    expect(document.body.textContent).not.toContain(
+      'Peça a quem acompanha para aceder às configurações.',
+    );
 
     expect(document.querySelector('header img')).toBeNull();
 

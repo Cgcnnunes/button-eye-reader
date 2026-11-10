@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.4
+
+- Replace the caregiver footer helper sentence with fixed-height, scrollable speech and action/error
+  feedback, preventing messages from resizing or moving the speaking targets while retaining the
+  existing header layout.
+- Use a blue-grey feedback scrollbar thumb with a transparent track and no WebKit/Chromium arrows.
+
 ## 0.6.3
 
 - Name the PROD validation job's checkout and Node setup steps for clearer Actions logs.
